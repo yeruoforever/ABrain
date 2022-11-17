@@ -103,9 +103,9 @@ class Evaluator(object):
         for sid, pred, true in tqdm(zip(sids, preds, trues)):
             msgs = self.analyze_one(sid, pred, true)
             results.append(msgs)
+        # TODO 多进程处理，可能存在死锁
         # pool = multiprocessing.Pool(num_works)
-        # results = poo
-        # l.starmap(self.analyze_one, zip(sids, preds, trues))
+        # results = pool.starmap(self.analyze_one, zip(sids, preds, trues))
         # pool.close()
         self.df = pds.DataFrame(results)
         self.show()
