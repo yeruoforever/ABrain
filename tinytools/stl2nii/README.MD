@@ -38,6 +38,19 @@
 ```
 ## 使用方法
 
+- 打开`Slicer3D`,进入`Python Interactor`。
+- 将代码粘贴进入代码输入框。
+- 找到`<input_dir>`，确认输出`<output_dir>`。
+- 声明`<input_dir>`和`<output_dir>`。
+```python
+indir="你的输入文件夹路径"
+outdir="你想输出的文件夹位置"
+```
+- 执行转换命令:  `convert_stl_nii(<input_dir>,<output_dir>)`
+```python
+convert_stl_nii(indir,outdir)
+```
 <video id="video" width="1024" height="768" controls>
     <source id="howtouse" src="./stl2nii.mov" type="video/mp4">
 </video>
+
