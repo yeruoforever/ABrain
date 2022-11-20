@@ -15,17 +15,26 @@ class Analyzer(object):
         self.name = name
 
     def analyze(self, subject: Subject):
+        """用于实现对`subject`的分析"""
         class_name = self.__class__.__name__
         why = "%s must implement `self.analyze(subject)`!" % (class_name)
         raise NotImplementedError(why)
 
     def parse_result(self, out):
+        """拼接分析结果。
+
+        `{"Subject":sid, "A":a, "B":b, ...}`
+        """
         if isinstance(out, Iterable):
             return {self.name + ' ' + str(i): e for i, e in enumerate(out)}
         else:
             return {self.name: out}
 
     def __call__(self, subject: Subject) -> Dict:
+        '''执行分析并返回结果
+        
+        subject --> analyze --> parse_result --> result
+        '''
         out = self.analyze(subject)
         out = self.parse_result(out)
         result = {'Subject': subject['name']}
@@ -35,8 +44,8 @@ class Analyzer(object):
 
 class ComposeAnalyzer(Analyzer):
     def __init__(self,
-                 analyzers: Iterable[Analyzer]
-                 ) -> None:
+                 *analyzers: Iterable[Analyzer]
+    ) -> None:
         super().__init__(name="ComposeAnalyzer")
         self.analyzers = analyzers
 
