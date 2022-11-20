@@ -25,14 +25,14 @@ class Analyzer(object):
 
         `{"Subject":sid, "A":a, "B":b, ...}`
         """
-        if isinstance(out, Iterable):
+        if isinstance(out, Iterable) and not isinstance(out, str):
             return {self.name + ' ' + str(i): e for i, e in enumerate(out)}
         else:
             return {self.name: out}
 
     def __call__(self, subject: Subject) -> Dict:
         '''执行分析并返回结果
-        
+
         subject --> analyze --> parse_result --> result
         '''
         out = self.analyze(subject)
@@ -45,7 +45,7 @@ class Analyzer(object):
 class ComposeAnalyzer(Analyzer):
     def __init__(self,
                  *analyzers: Iterable[Analyzer]
-    ) -> None:
+                 ) -> None:
         super().__init__(name="ComposeAnalyzer")
         self.analyzers = analyzers
 
