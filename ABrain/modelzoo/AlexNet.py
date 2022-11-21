@@ -80,8 +80,10 @@ class AlexNet(ClassifyModel):
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(7*7*256, 4096),
+            nn.Dropout(0.5),
             nn.ReLU(),
             nn.Linear(4096, 4096),
+            nn.Dropout(0.5),
             nn.ReLU(),
             nn.Linear(4096, n_class),
             nn.Softmax(dim=1)
