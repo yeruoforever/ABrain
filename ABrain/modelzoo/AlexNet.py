@@ -86,7 +86,6 @@ class AlexNet(ClassifyModel):
             nn.Dropout(0.5),
             nn.ReLU(),
             nn.Linear(4096, n_class),
-            nn.Softmax(dim=1)
         )
 
     def forward(self, x):
