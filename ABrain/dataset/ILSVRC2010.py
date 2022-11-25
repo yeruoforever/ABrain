@@ -2,12 +2,13 @@ import os
 import re
 from typing import List
 
+import numpy as np
 import pandas as pds
 import scipy
 import torch
-from torch.utils.data import Dataset
-import numpy as np
 import torchvision
+import tqdm
+from torch.utils.data import Dataset
 
 from ..transforms.RGB_PCA import RGBPCA
 
