@@ -81,7 +81,7 @@ class VEncoder(nn.Module):
             block = VStageDown(in_chs, out, sz)
             self.stages.append(block)
             in_chs = out
-        self.out_chs=out
+        self.out_chs = out
 
     def forward(self, x):
         skips = []
@@ -158,7 +158,7 @@ class VNet(VNetFrameWork):
         bottleneck = VBottleneck(
             encoder.out_chs, encoder.out_chs//2, block_size[-1])
         decoder = VDecoder(encoder.out_chs, block_size[:-1], min_chs)
-        output_layer = VOutput(decoder.out_chs,n_class)
+        output_layer = VOutput(decoder.out_chs, n_class)
         super().__init__(
             n_class=n_class,
             input_layer=input_layer,
