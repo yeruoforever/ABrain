@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from ...modelzoo.VNet import VStageDown, VStageUp, VBottleneck, VEncoder, VDecoder, VInput, VOutput, VNetFrameWork
+from ...modelzoo.VNet import VStageDown, VStageUp, VBottleneck, VEncoder, VDecoder, VInput, VOutput, VNetFrameWork, VNet
 
 
 class TestVNet(unittest.TestCase):
@@ -85,15 +85,14 @@ class TestVNet(unittest.TestCase):
             torch.rand(B, C_in//4, W*2, H*2, D*2),
             torch.rand(B, C_in//8, W*4, H*4, D*4),
         ]
-        x = decoder(xs, x)
+        xs, x = decoder(xs, x)
         self.assertEqual(x.shape, (B, C_in//16, W*8, H*8, D*8))
+        self.assertEqual(len(xs), 3)
 
-    def test_VNet(self):
+    def test_VNetFramework(self):
         B, C, W, H, D = 2, 1, 128, 128, 64
         N = 10
         img = torch.rand(B, C, W, H, D)
-        [2, 3, 3, 3]
-        [1]
         vnet = VNetFrameWork(
             N,
             input_layer=VInput(1, 32),
@@ -102,5 +101,15 @@ class TestVNet(unittest.TestCase):
             decoder=VDecoder(256, [2, 3, 3]),
             output_layer=VOutput(32, 10)
         )
-        y = vnet(img)
+        stages, y = vnet(img)
         self.assertEqual(y.shape, (B, N, W, H, D))
+        self.assertEqual(len(stages), 3)
+
+    def test_VNet(self):
+        B, C, W, H, D = 2, 1, 128, 128, 64
+        N = 10
+        img = torch.rand(B, C, W, H, D)
+        vnet = VNet(N, C, 32, [2, 3, 3, 3])
+        xs, y = vnet(img)
+        self.assertEqual(y.shape, (B, N, W, H, D))
+        self.assertEqual(len(xs), 3)

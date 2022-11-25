@@ -10,7 +10,7 @@ class VInput(nn.Module):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv3d(in_chs, out_chs//2, kernel_size=5, stride=1, padding=2),
-            nn.PReLU()
+            nn.PReLU(out_chs//2)
         )
         self.pooling = nn.Conv3d(out_chs//2, out_chs, kernel_size=2, stride=2)
 
@@ -25,7 +25,7 @@ class VOutput(nn.Module):
         super().__init__()
         self.conv = nn.Sequential(
             nn.ConvTranspose3d(in_chs, in_chs, 5, 1, 2),
-            nn.PReLU()
+            nn.PReLU(in_chs)
         )
         self.segmenatation = nn.Sequential(
             nn.Conv3d(in_chs, out_chs, 1, 1),
@@ -46,7 +46,7 @@ class VStageDown(nn.Module):
         for _ in range(n_convs):
             self.rediualBlock.append(
                 nn.Conv3d(in_chs, in_chs, 5, 1, 2))
-            self.rediualBlock.append(nn.PReLU())
+            self.rediualBlock.append(nn.PReLU(in_chs))
         self.sample = nn.Conv3d(in_chs, out_chs, 2, 2)
 
     def forward(self, x):
@@ -62,7 +62,7 @@ class VStageUp(nn.Module):
         for _ in range(n_convs):
             self.rediualBlock.append(
                 nn.Conv3d(in_chs, in_chs, 5, 1, 2))
-            self.rediualBlock.append(nn.PReLU())
+            self.rediualBlock.append(nn.PReLU(in_chs))
         self.sample = nn.ConvTranspose3d(in_chs, out_chs//2, 2, 2)
 
     def forward(self, x1, x2):
@@ -76,13 +76,12 @@ class VEncoder(nn.Module):
     def __init__(self, in_chs: int, block_size=List[int], max_chs: int = 256) -> None:
         super().__init__()
         self.stages = nn.Sequential()
-        self.out_chs = []
         for sz in block_size:
             out = min(max_chs, in_chs*2)
             block = VStageDown(in_chs, out, sz)
             self.stages.append(block)
             in_chs = out
-            self.out_chs.append(out)
+        self.out_chs=out
 
     def forward(self, x):
         skips = []
@@ -107,9 +106,11 @@ class VDecoder(nn.Module):
         self.out_chs = in_chs
 
     def forward(self, x_stages, x):
+        stages = []
         for stage, xi in zip(self.stages, x_stages):
             x = stage(xi, x)
-        return x
+            stages.append(x)
+        return stages, x
 
 
 class VBottleneck(nn.Module):
@@ -118,10 +119,10 @@ class VBottleneck(nn.Module):
         self.conv = nn.Sequential()
         for _ in range(n_convs):
             self.conv.append(nn.Conv3d(in_chs, in_chs, 5, 1, 2))
-            self.conv.append(nn.PReLU())
+            self.conv.append(nn.PReLU(in_chs))
         self.upsample = nn.Sequential(
             nn.ConvTranspose3d(in_chs, out_chs, 2, 2),
-            nn.PReLU()
+            nn.PReLU(out_chs)
         )
 
     def forward(self, x):
@@ -145,18 +146,19 @@ class VNetFrameWork(SegmentationModel):
         x_ori, x = self.input(x)
         x_stages, x = self.encoder(x)
         x_bot = self.bottleneck(x)
-        x = self.decoder(x_stages, x_bot)
+        x_stages, x = self.decoder(x_stages, x_bot)
         x = self.output(x_ori, x)
-        return x
+        return x_stages, x
 
 
 class VNet(VNetFrameWork):
     def __init__(self, n_class: int, ori_chs: int, in_chs: int, block_size: List[int], max_chs: int = 256, min_chs=16) -> None:
         input_layer = VInput(ori_chs, in_chs)
         encoder = VEncoder(in_chs, block_size[:-1], max_chs)
-        bottleneck = VBottleneck(encoder.out_chs,encoder.out_chs//2,block_size[-1])
+        bottleneck = VBottleneck(
+            encoder.out_chs, encoder.out_chs//2, block_size[-1])
         decoder = VDecoder(encoder.out_chs, block_size[:-1], min_chs)
-        output_layer = VOutput(decoder.out_chs,)
+        output_layer = VOutput(decoder.out_chs,n_class)
         super().__init__(
             n_class=n_class,
             input_layer=input_layer,
