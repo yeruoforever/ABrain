@@ -29,7 +29,7 @@ class VOutput(nn.Module):
         )
         self.segmenatation = nn.Sequential(
             nn.Conv3d(in_chs, out_chs, 1, 1),
-            nn.Sigmoid()
+            # nn.Sigmoid()
         )
 
     def forward(self, x1, x2):
