@@ -118,15 +118,3 @@ class Evaluator(object):
         # pool.close()
         self.df = pds.DataFrame(results)
         self.show()
-
-
-class CompareAnalyzer(Analyzer):
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
-
-    def parse_data(self, subject: Subject) -> Tuple[Tensor]:
-        pred: Tensor = subject['pred'][tio.DATA]
-        true: Tensor = subject['true'][tio.DATA]
-        pred = pred.long()
-        true = true.long()
-        return pred, true
