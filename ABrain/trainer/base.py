@@ -1,7 +1,7 @@
 from typing import Callable, Optional, Union, Tuple
 
 import torch
-import torch.amp as amp
+import torch.cuda.amp as amp
 from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
@@ -69,10 +69,10 @@ class Trainer(object):
             data, target = self.parse_data_train(subject)
             with amp.autocast():
                 loss, pred = self.forward_iterate(data, target, loss_fun)
+            optimer.zero_grad()  
             scaler.scale(loss).backward()
             scaler.step(optimer)
             scaler.update()
-            optimer.zero_grad()  
             progress.set_description("train loss: %.6f" % loss.item())
             # TODO record states for each iters.
             # self.train_callback(pred,target)
