@@ -30,6 +30,7 @@ class VOutput(nn.Module):
         self.segmenatation = nn.Sequential(
             nn.Conv3d(in_chs, out_chs, 1, 1),
             # nn.Sigmoid()
+            nn.ReLU()
         )
 
     def forward(self, x1, x2):
@@ -40,12 +41,14 @@ class VOutput(nn.Module):
 
 
 class VStageDown(nn.Module):
-    def __init__(self, in_chs: int, out_chs: int, n_convs: int) -> None:
+    def __init__(self, in_chs: int, out_chs: int, n_convs: int, use_norm: bool = True) -> None:
         super().__init__()
         self.rediualBlock = nn.Sequential()
         for _ in range(n_convs):
             self.rediualBlock.append(
                 nn.Conv3d(in_chs, in_chs, 5, 1, 2))
+            if use_norm:
+                self.rediualBlock.append(nn.InstanceNorm3d(in_chs))
             self.rediualBlock.append(nn.PReLU(in_chs))
         self.sample = nn.Conv3d(in_chs, out_chs, 2, 2)
 
@@ -56,12 +59,14 @@ class VStageDown(nn.Module):
 
 
 class VStageUp(nn.Module):
-    def __init__(self, in_chs: int, out_chs: int, n_convs: int) -> None:
+    def __init__(self, in_chs: int, out_chs: int, n_convs: int, use_norm: bool = True) -> None:
         super().__init__()
         self.rediualBlock = nn.Sequential()
         for _ in range(n_convs):
             self.rediualBlock.append(
                 nn.Conv3d(in_chs, in_chs, 5, 1, 2))
+            if use_norm:
+                self.rediualBlock.append(nn.InstanceNorm3d(in_chs))
             self.rediualBlock.append(nn.PReLU(in_chs))
         self.sample = nn.ConvTranspose3d(in_chs, out_chs//2, 2, 2)
 
@@ -76,9 +81,9 @@ class VEncoder(nn.Module):
     def __init__(self, in_chs: int, block_size=List[int], max_chs: int = 256) -> None:
         super().__init__()
         self.stages = nn.Sequential()
-        for sz in block_size:
+        for i, sz in enumerate(block_size):
             out = min(max_chs, in_chs*2)
-            block = VStageDown(in_chs, out, sz)
+            block = VStageDown(in_chs, out, sz, use_norm=i < 2)
             self.stages.append(block)
             in_chs = out
         self.out_chs = out
@@ -98,9 +103,9 @@ class VDecoder(nn.Module):
         self.stages = nn.Sequential()
         block_size: list = block_size.copy()
         block_size.reverse()
-        for sz in block_size:
+        for i, sz in enumerate(block_size):
             out_chs = max(min_chs, in_chs//2)
-            block = VStageUp(in_chs, out_chs, sz)
+            block = VStageUp(in_chs, out_chs, sz, use_norm=i>=2)
             self.stages.append(block)
             in_chs = out_chs
         self.out_chs = in_chs
