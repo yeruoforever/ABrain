@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ABrain.modelzoo.base import ClassifyModel
+from .base import ClassifyModel
 
 
 class LinearPool(nn.Module):
@@ -29,7 +29,7 @@ class ScaledHyperholicTanh(nn.Module):
         self.s=s
 
     def forward(self,x):
-        y = self.a*nn.functional.tanh(self.s*x)
+        y = self.a*torch.tanh(self.s*x)
         return y
 
     
