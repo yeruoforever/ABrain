@@ -10,8 +10,15 @@ class CompareAnalyzer(Analyzer):
         super().__init__(name)
 
     def parse_data(self, subject: Subject) -> Tuple[Tensor]:
-        pred: Tensor = subject['pred'][tio.DATA]
-        true: Tensor = subject['true'][tio.DATA]
+        if not isinstance(subject['pred'],torch.Tensor):    # Monai API
+            pred: Tensor = subject['pred'][tio.DATA]
+        else:
+            pred: Tensor = subject['pred']
+        if not isinstance(subject['true'],torch.Tensor):
+            true: Tensor = subject['true'][tio.DATA]
+        else:
+            true: Tensor = subject['true']
+
         pred = pred.long()
         true = true.long()
         return pred, true
