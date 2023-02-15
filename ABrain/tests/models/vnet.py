@@ -16,7 +16,7 @@ class TestVNet(unittest.TestCase):
         stage: VStageDown = VStageDown(C_in, C_out, S)
         n = len(stage.rediualBlock)
         # print(stage.rediualBlock)
-        self.assertEqual(n, S*2)  # a conv with a pooling.
+        self.assertEqual(n, S*3)  # a conv with a pooling and a normalization with default.
         x = torch.rand(B, C_in, W, H, D)
         y, y_small = stage(x)
         self.assertTrue(True)
@@ -30,7 +30,7 @@ class TestVNet(unittest.TestCase):
         stage: VStageUp = VStageUp(C_in, C_in//2, S)
         n = len(stage.rediualBlock)
         # print(stage.rediualBlock)
-        self.assertEqual(n, S*2)  # a conv with a pooling.
+        self.assertEqual(n, S*3)  # a conv with a pooling and a normalization with default. 
         x1 = torch.rand(B, C_in//2, W, H, D)
         x2 = torch.rand(B, C_in//2, W, H, D)
         y = stage(x1, x2)
@@ -113,3 +113,8 @@ class TestVNet(unittest.TestCase):
         xs, y = vnet(img)
         self.assertEqual(y.shape, (B, N, W, H, D))
         self.assertEqual(len(xs), 3)
+        x=0
+        for k,v in vnet.state_dict().items():
+            x=x+v.numel()
+        print(x)
+            
