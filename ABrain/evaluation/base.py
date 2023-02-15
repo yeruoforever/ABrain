@@ -5,9 +5,12 @@ from typing import Callable, Dict, Iterable, Optional, Tuple
 import pandas as pds
 import torchio as tio
 from torch import Tensor
-from torchio import LabelMap
+from torchio import LabelMap, ScalarImage
 from torchio.data import Subject
 from tqdm import tqdm
+
+from ..dataset import OurDataset
+from ..trainer.writer import InferenceWriter
 
 
 class Analyzer(object):
@@ -59,43 +62,45 @@ class ComposeAnalyzer(Analyzer):
 class Evaluator(object):
     def __init__(
             self,
+            dataset: OurDataset,
             dir_pred: str,
-            dir_true: str,
-            analyzes: Iterable[Analyzer]
+            analyzes: Iterable[Analyzer],
+            process: tio.Transform,
     ) -> None:
         self.df = pds.DataFrame()
         self.dir_pred = dir_pred
-        self.dir_true = dir_true
         self.analyzes = analyzes
-
-    def get_sids(self):
-        sids = os.listdir(self.dir_true)
-        sids = list(map(lambda x: x.split('.nii.gz')[0], sids))
-        return sids
+        self.process = process
+        self.dataset = dataset
 
     def get_file_name(self, sid: str):
-        return sid+'.nii.gz'
+        file =  sid+'.pred.nii.gz'
+        return os.path.join(self.dir_pred, file)
 
     def get_pred(self, sid: str):
-        '''只返回文件名'''
+        '''返回预测文件完整路径'''
         return self.get_file_name(sid)
 
     def get_true(self, sid: str):
-        '''只返回文件名'''
-        return self.get_file_name(sid)
+        '''返回文件完整路径'''
+        return self.dataset.seg_file(sid)
 
     def show(self):
         print(self.df)
+        print(self.df.mean())
 
     def save(self, path: str):
         self.df.to_csv(path)
 
-    def analyze_one(self, sid, pred, true):
+    def analyze_one(self, sid, img, pred, true):
         subject = Subject(
             name=sid,
-            pred=LabelMap(os.path.join(self.dir_pred, pred)),
-            true=LabelMap(os.path.join(self.dir_true, true))
+            img=ScalarImage(img),
+            pred=LabelMap(pred).tensor,
+            true=LabelMap(true).tensor
         )
+        if self.process:
+            subject = self.process(subject)
         if isinstance(self.analyzes, Callable):
             msgs = self.analyzes(subject)
         else:
@@ -104,13 +109,14 @@ class Evaluator(object):
                 msgs.update(analyze(subject))
         return msgs
 
-    def run(self, num_works: Optional[int] = None):
-        sids = self.get_sids()
+    def run(self, num_works: Optional[int] = None, ):
+        sids = self.dataset.sids
+        imgs = list(map(self.dataset.img_file, sids))
         preds = list(map(self.get_pred, sids))
         trues = list(map(self.get_true, sids))
         results = []
-        for sid, pred, true in tqdm(zip(sids, preds, trues)):
-            msgs = self.analyze_one(sid, pred, true)
+        for sid, img, pred, true in tqdm(zip(sids,imgs, preds, trues)):
+            msgs = self.analyze_one(sid, img, pred, true)
             results.append(msgs)
         # TODO 多进程处理，可能存在死锁
         # pool = multiprocessing.Pool(num_works)
