@@ -7,7 +7,7 @@ from torch import Tensor
 import torchio as tio
 
 
-Meta = namedtuple("SegmentationMeta", ["data", "affine"])
+Meta = namedtuple("SegmentationMeta", ["name", "affine"])
 
 
 def _check_bounds(b):
@@ -42,7 +42,7 @@ class SegmentationTrainer(Trainer):
         self.n_label = n_label
 
     def parse_data(self, subject):
-        data:Tensor = subject["img"][tio.DATA]
+        data:Tensor = subject["img"][tio.DATA].float()
         target:Tensor = subject["seg"][tio.DATA].long().squeeze(1)
         data = data.to(self.device)
         target = target.to(self.device)
@@ -62,22 +62,23 @@ class SegmentationTrainer(Trainer):
         return data, Meta(name=name, affine=affine)
 
     def forward_iterate(self, data, target, loss_fun):
-        out = self.model(data)
+        state, out = self.model(data)
         if self.deep_supervise:
-            loss_out = loss_fun(out[0], target)*0.5
-            loss_ds1 = loss_fun(out[1], target)*0.07
-            loss_ds2 = loss_fun(out[2], target)*0.14
-            loss_ds3 = loss_fun(out[3], target)*0.29
+            # [0.5, 0.07, 0.14, 0,29]
+            loss_out = loss_fun(out, target)*0.5
+            loss_ds1 = loss_fun(state[0], target)*0.07
+            loss_ds2 = loss_fun(state[1], target)*0.14
+            loss_ds3 = loss_fun(state[2], target)*0.29
             loss = loss_out+loss_ds1+loss_ds2+loss_ds3
-            pred = out[0]
+            pred = out
         # elif fine_coarse:
         #     loss_fine = loss_fun(ou,t[0], target)
         #     loss_coarse = loss_fun(out[1], target)
         #     loss = loss_fine+loss_coarse
         #     pred = out[0]
         else:
-            loss = loss_fun(out[0], target)
-            pred = out[0]
+            loss = loss_fun(out, target)
+            pred = out
         return loss, pred
 
     def make_patch(self, bounds, patch, stride):
@@ -88,17 +89,16 @@ class SegmentationTrainer(Trainer):
                     yield (i, j, k)
 
     def inference_iterate(self, data):
-        # data = data.to(self.device)
+        state, out = self.model(data)
         if self.deep_supervise:
-            out = self.model(data)[0]
+            return out
         # elif fine_coarse:
         #     loss_fine = loss_fun(out[0], target)
         #     loss_coarse = loss_fun(out[1], target)
         #     loss = loss_fine+loss_coarse
         #     pred = out[0]
         else:
-            out = self.model(data)
-        return out
+            return out
 
     def inference_batch(self, data, patch_size, stride):
         patch = _check_bounds(patch_size)
@@ -115,5 +115,3 @@ class SegmentationTrainer(Trainer):
             cnt[:, :, i:i+w, j:j+h, k:k+d].add_(1.)
         return pred.div_(cnt)
 
-    def epoch_step(self):
-        self.watcher.epoch_end()
