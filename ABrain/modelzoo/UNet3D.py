@@ -77,8 +77,8 @@ class UStageUp(UStage):
 
 
 class UBottleneck(UStage):
-    def __init__(self,in_ch:int, chs: List[int]) -> None:
-        super().__init__([in_ch,*chs])
+    def __init__(self, in_ch: int, chs: List[int]) -> None:
+        super().__init__([in_ch, *chs])
     pass
 
 
@@ -121,7 +121,7 @@ class UExpansive(nn.Module):
                 self.stages.append(UStageUp(skips[-i], chs))
                 chs = [in_ch, ]
                 i += 1
-        self.stages.append(UStageUp(skips[-i],chs))
+        self.stages.append(UStageUp(skips[-i], chs))
 
     def forward(self, skips, x):
         stages = []
@@ -148,8 +148,8 @@ class USkipCrop(nn.Module):
         super().__init__()
         self.crops = nn.ModuleList()
         for s in skip_size:
-            if not isinstance(s,torch.Tensor):
-                s = torch.tensor(s,dtype=torch.int)
+            if not isinstance(s, torch.Tensor):
+                s = torch.tensor(s, dtype=torch.int)
             self.crops.append(CenterCrop3D(s))
 
     def forward(self, skips):
@@ -228,8 +228,13 @@ def findlast(f: Callable, l: Sequence):
 
 
 class UNet3D(UFrameWork):
+    '''
+    3D U-Net
 
-    def __init__(self, in_chs, n_class: int, input_size, conf: List,) -> None:
+
+    '''
+
+    def __init__(self, in_chs, n_class: int, input_size, conf: List = [32, 64, 'd', 64, 128, 'd', 128, 256, 'd', 256, 512, 'u', 256, 256, 'u', 128, 128, 'u', 64, 64]) -> None:
         # 1,9
         # [32,64,'d',64,128,'d',128,256,'d',256,512,'u',256,256,'u',128,128,'u',64,64]
         a = findlast(lambda x: x == 'd', conf)
@@ -247,7 +252,7 @@ class UNet3D(UFrameWork):
             n_class,
             input_layer=nn.Identity(),
             contracting=UContracting(in_chs, contracting),
-            bottleneck=UBottleneck(contracting[-2],bottleneck),
+            bottleneck=UBottleneck(contracting[-2], bottleneck),
             expansive=UExpansive(bottleneck[-1], skip_feats, expansive),
             output_layer=UOutput(expansive[-1], n_class),
             skip_crops=USkipCrop(skip_sizes)
