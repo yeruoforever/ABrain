@@ -5,7 +5,7 @@ __all__ = [
     'AlexEncoder', 'AlexNet',
     'LinearPool', 'ScaledHyperholicTanh', 'LeNet5',
     'VInput', 'VOutput', 'VStageDown', 'VStageUp', 'VEncoder',
-    'UInput', 'UOutput', 'UContracting', 'UExpansive', 'UBottleneck', 'UFrameWork'
+    'UInput', 'UOutput', 'UContracting', 'UExpansive', 'UBottleneck', 'UFrameWork','UNet3D'
     'VDecoder', 'VBottleneck', 'VNetFrameWork', 'VNet',
     'CBAMVNet',
     'DiceLoss3D'
