@@ -112,4 +112,5 @@ class UNet3DGridAggregator(object):
     def get_output_tensor(self) -> torch.Tensor:
         '''返回拼接好的概率图
         '''
-        return self.data/self.cnt
+        res = self.data/self.cnt
+        return res.cpu()

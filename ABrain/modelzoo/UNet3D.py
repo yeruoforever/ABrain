@@ -136,7 +136,7 @@ class UOutput(nn.Module):
         super().__init__()
         self.conv_1x1 = nn.Sequential(
             nn.Conv3d(in_ch, n_class, kernel_size=1),
-            nn.Softmax(dim=1)
+            # nn.Softmax(dim=1)
         )
 
     def forward(self, x):
