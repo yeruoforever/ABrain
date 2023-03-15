@@ -185,7 +185,7 @@ def compute_confusion_matrix(pred: Tensor, target: Tensor, n_labels: int):
 
 
 class VoxelMetrics(Analyzer):
-    def __init__(self, metrics, n_labels: int, bg_ignore: bool = False,smooth:bool=1.) -> None:
+    def __init__(self, metrics:Iterable[str], n_labels: int, bg_ignore: bool = False,smooth:bool=1.) -> None:
         super().__init__()
         for each in metrics:
             assert each in VoxelMethods.keys(
