@@ -13,8 +13,8 @@ __all__ = [
 
 
 from .base import *
-from .LeNet5 import *
-from .AlexNet import *
+from .backbone.LeNet5 import *
+from .backbone.AlexNet import *
 from .VNet import *
 from .MSDSAV_CBAM import VNet as CBAMVNet
 from .losses import DiceLoss3D
