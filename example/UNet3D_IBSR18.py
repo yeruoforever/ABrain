@@ -41,6 +41,7 @@ arg_parser.add_argument('--inference', type=str,
                         default="./inference", help='预测结果存放位置')
 arg_parser.add_argument(
     '--best_model', action='store_true', help="从验证集上最好的那套参数开始工作")
+arg_parser.add_argument('--compile_mode',help="Torch 2.0 compile mode",type=str,default='default')
 
 args = arg_parser.parse_args()
 
@@ -128,7 +129,8 @@ else:
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
 scaler = GradScaler()
-
+logging.info(f"[Compile]: mode --> {args.compile_mode}")
+model = torch.compile(model,mode=args.compile_mode)
 
 def parse_data(package, device):
     img = package['img'][DATA]
