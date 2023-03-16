@@ -3,7 +3,7 @@ from typing import List, Union, Optional, Sequence
 import torch
 import torch.nn as nn
 
-from .base import ClassifyModel
+from ..base import ClassifyModel
 
 
 class AlexEncoder(nn.Module):
