@@ -87,7 +87,7 @@ def dice_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float
     for label in range(st, n_labels):
         denominator = mat[label, :].sum()+mat[:, label].sum()
         numerator = mat[label, label]
-        score = (numerator+smooth)/(denominator+smooth)
+        score = (2*numerator+smooth)/(denominator+smooth)
         dices.append(score)
     return Tensor(dices).tolist()
 
@@ -150,7 +150,7 @@ def vd_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float =
     st = 1 if bg_ignore else 0
     vds = []
     for label in range(st, n_labels):
-        vd = mat[label, :]/sum()-mat[:label].sum()
+        vd = mat[label, :].sum()-mat[:label].sum()
         vds.append(vd)
     return Tensor(vds).tolist()
 
