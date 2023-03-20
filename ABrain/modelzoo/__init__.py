@@ -8,7 +8,7 @@ __all__ = [
     'UInput', 'UOutput', 'UContracting', 'UExpansive', 'UBottleneck', 'UFrameWork','UNet3D'
     'VDecoder', 'VBottleneck', 'VNetFrameWork', 'VNet',
     'CBAMVNet',
-    'DiceLoss3D'
+    'DiceLoss3D',
 ]
 
 

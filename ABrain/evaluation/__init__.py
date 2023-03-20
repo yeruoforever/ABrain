@@ -8,7 +8,8 @@ __all__ = [
     'IoU', 'iou',
     'F1Score', 'f1score',
     'VD', 'RVD', 'vd', 'rvd',
-    'VOE', 'voe'
+    'VOE', 'voe',
+    'VoxelMetrics', ' VoxelMethods'
 ]
 
 from .base import Analyzer, ComposeAnalyzer, Evaluator

@@ -6,8 +6,8 @@ from .functional import *
 
 
 class CompareAnalyzer(Analyzer):
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
+    def __init__(self, name: str,label_names:Iterable[str]) -> None:
+        super().__init__(name,label_names)
 
     def parse_data(self, subject: Subject) -> Tuple[Tensor]:
         if not isinstance(subject['pred'], torch.Tensor):    # Monai API
@@ -28,12 +28,11 @@ class ASSD(CompareAnalyzer):
     '''Average Symmetric Surface Distance'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "ASSD",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -47,12 +46,11 @@ class HausdorffDistance95(CompareAnalyzer):
     '''hausdorff distance'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "hausdorff_distance 95",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -65,12 +63,11 @@ class Dice(CompareAnalyzer):
     '''Dice'''
 
     def __init__(self,
-                 n_labels: int,
+                label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "Dice",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -83,12 +80,11 @@ class IoU(CompareAnalyzer):
     '''IoU'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "IoU",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -99,12 +95,11 @@ class IoU(CompareAnalyzer):
 
 class F1Score(CompareAnalyzer):
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "F1 Score",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -117,12 +112,11 @@ class VD(CompareAnalyzer):
     '''Volume Difference'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "VD",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -135,12 +129,11 @@ class RVD(CompareAnalyzer):
     '''Relative Volume Difference'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "RVD",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -153,12 +146,11 @@ class VOE(CompareAnalyzer):
     '''volumetric overlap error'''
 
     def __init__(self,
-                 n_labels: int,
+                 label_names:Iterable[str],
                  bg_ignore: bool = False,
                  name: str = "VOE",
                  ) -> None:
-        super().__init__(name)
-        self.n_labels = n_labels
+        super().__init__(name,label_names)
         self.bg_ignore = bg_ignore
 
     def analyze(self, subject: Subject):
@@ -179,19 +171,19 @@ VoxelMethods = {
 
 def compute_confusion_matrix(pred: Tensor, target: Tensor, n_labels: int):
     ids = target*n_labels+pred
+    ids = ids.flatten()
     cnt = ids.bincount(minlength=n_labels*n_labels)
     mat = cnt.reshape(n_labels, n_labels)
     return mat
 
 
 class VoxelMetrics(Analyzer):
-    def __init__(self, metrics:Iterable[str], n_labels: int, bg_ignore: bool = False,smooth:bool=1.) -> None:
-        super().__init__()
+    def __init__(self, metrics:Iterable[str], label_names:Iterable[str], bg_ignore: bool = False,smooth:bool=1.) -> None:
+        super().__init__("Voxel Metrics",label_names)
         for each in metrics:
             assert each in VoxelMethods.keys(
             ), f"`{each}` not in `{VoxelMethods.keys()}`"
         self.metrics = metrics
-        self.n_labels= n_labels
         self.bg_ignore = bg_ignore
         self.smooth=smooth
 
@@ -209,13 +201,14 @@ class VoxelMetrics(Analyzer):
         true = true.long()
         return pred, true
     
-    def parse_result(name:str,out):
+    def parse_result(self, name:str,out):
         """拼接分析结果。
 
         `{"Subject":sid, "A":a, "B":b, ...}`
         """
+        lns = self.label_names
         if isinstance(out, Iterable) and not isinstance(out, str):
-            return {name + ' ' + str(i): e for i, e in enumerate(out)}
+            return {name + ' ' + n : e for n, e in zip(lns,out)}
         else:
             return {name: out}
 
