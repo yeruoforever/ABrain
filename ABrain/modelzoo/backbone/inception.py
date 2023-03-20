@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from monai.networks.blocks import Convolution
+from monai.networks.layers import Pool, Act, Norm, split_args
 
 
 def inception_v1(spatial_dims: int):
@@ -67,20 +68,32 @@ class Inception(nn.Module):
         return torch.cat((x1, x2, x3, x4), dim=1)
 
 
-
-def factored_conv(spatial_dims:int,in_channels:int,out_channels:int,kernel_size:int,padding:int):
-    k,p = kernel_size,padding
-    if spatial_dims==2:
+def make_conv(spatial_dims: int, in_channels: int, out_channels: int, kernel_size: int, padding: int, factored: False):
+    k, p = kernel_size, padding
+    if not factored:
+        return Convolution(spatial_dims, in_channels, out_channels, kernel_size=k, padding=p)
+    if spatial_dims == 2:
         return [
-            Convolution(spatial_dims,in_channels,out_channels,kernel_size=(k,1,),padding=(p,0,)),
-            Convolution(spatial_dims,out_channels,out_channels,kernel_size=(1,k,),padding=(0,p,)),
+            Convolution(spatial_dims, in_channels, out_channels,
+                        kernel_size=(1, k,), padding=(0, p,)),
+            Convolution(spatial_dims, in_channels, in_channels,
+                        kernel_size=(k, 1,), padding=(p, 0,)),
         ]
     else:
         return [
-            Convolution(spatial_dims,in_channels,out_channels,kernel_size=(k,1,1),padding=(p,0,0)),
-            Convolution(spatial_dims,out_channels,out_channels,kernel_size=(1,k,1),padding=(0,p,0)),
-            Convolution(spatial_dims,out_channels,out_channels,kernel_size=(1,1,k),padding=(0,0,p)),
+            Convolution(spatial_dims, in_channels, out_channels,
+                        kernel_size=(1, 1, k), padding=(0, 0, p)),
+            Convolution(spatial_dims, in_channels, in_channels,
+                        kernel_size=(1, k, 1), padding=(0, p, 0)),
+            Convolution(spatial_dims, in_channels, in_channels,
+                        kernel_size=(k, 1, 1), padding=(p, 0, 0)),
         ]
+
+
+def make_pool(name, spatial_dim, **kwargs):
+    pool, p_args = split_args(name, kwargs)
+    return Pool[pool, spatial_dim](**p_args)
+
 
 class Branch(nn.Sequential):
     def __init__(
@@ -92,36 +105,292 @@ class Branch(nn.Sequential):
         kernal_size: int,
         padding: int,
         units: int = 1,
+        factored: bool = False,
+        expend_first: bool = True,
         *args,
         **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
-        k, p=kernal_size,padding
+        k, p = kernal_size, padding
         layers = [Convolution(spatial_dims, in_channels,
                               mid_channels, kernel_size=1, padding=0)]
-        for i in range(units-1):
-            layers.append(factored_conv(
+        if expend_first:
+            layers.append(make_conv(
                 spatial_dims,
-                in_channels,
                 mid_channels,
+                out_channels,
                 k,
-                p
+                p,
+                factored
             ))
-        layers.append(factored_conv(
-            spatial_dims,
-            mid_channels,
-            out_channels,
-            k,
-            p
-        ))
+
+            for i in range(1, units):
+                layers.append(make_conv(
+                    spatial_dims,
+                    out_channels,
+                    out_channels,
+                    k,
+                    p,
+                    factored,
+                ))
+
+        else:
+            for i in range(units-1):
+                layers.append(make_conv(
+                    spatial_dims,
+                    mid_channels,
+                    mid_channels,
+                    k,
+                    p,
+                    factored,
+                ))
+
+            layers.append(make_conv(
+                spatial_dims,
+                mid_channels,
+                out_channels,
+                k,
+                p,
+                factored
+            ))
+
         self.extend(layers)
 
-class InceptionA(nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
 
-    def forward(self,x):
-        return x
+class InceptionA(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        pool_channels: int,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.branch1x1 = Convolution(
+            spatial_dims, in_channels, 64, kernel_size=1)
+        self.branch5x5 = Branch(
+            spatial_dims, in_channels, 48, 64, kernel_size=5, padding=2, expend_first=True)
+        self.branch3x3 = Branch(spatial_dims, in_channels, 64, 96,
+                                kernal_size=3, padding=1, units=2, expend_first=True)
+        pool_type, pool_args = split_args(
+            'AdaptiveAvg',
+            {
+                'kernel_size': 3,
+                'stride': 1,
+                'padding': 1
+            }
+        )
+        self.branch_pool = nn.Sequential(
+            Convolution(
+                spatial_dims, in_channels, pool_channels, kernel_size=1),
+            Pool[pool_type, spatial_dims](**pool_args)
+        )
+
+    def forward(self, x):
+        branch1x1 = self.branch1x1(x)
+        branch5x5 = self.branch5x5(x)
+        branch3x3 = self.branch3x3(x)
+        branch_pool = self.branch_pool(x)
+        return torch.cat((branch1x1, branch5x5, branch3x3, branch_pool), dim=1)
+
+
+class InceptionB(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.branch3x3 = Convolution(
+            spatial_dims, in_channels, 384, kernel_size=3, strides=2, padding=0)
+        self.branch3x3dbl = nn.Sequential(
+            Branch(spatial_dims, in_channels, 64, 96, kernel_size=3,
+                   padding=1, units=1, factored=False),
+            Convolution(spatial_dims, 96, 96, strides=2, kernel_size=3)
+        )
+        pool, p_args = split_args(
+            'Max',
+            {
+                'kernel_size': 3,
+                'stride': 2
+            }
+        )
+        self.branch_pool = Pool[pool, spatial_dims](**p_args)
+
+    def forward(self, x):
+        branch3x3 = self.branch3x3(x)
+        branch3x3dbl = self.branch3x3dbl_1(x)
+        branch_pool = self.branch_pool(x)
+        return torch.cat((branch3x3, branch3x3dbl, branch_pool), dim=1)
+
+
+class InceptionC(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        channels_7x7: int,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.branch1x1 = Convolution(
+            spatial_dims, in_channels, 192, kernel_size=1)
+
+        c7 = channels_7x7
+        self.branch7x7 = Branch(spatial_dims, in_channels,
+                                c7, 192, kernel_size=7, factored=True, padding=3)
+
+        self.branch7x7dbl = Branch(spatial_dims, in_channels, c7, 192,
+                                   kernal_size=7, padding=3, units=2, factored=True, expend_first=False)
+
+        pool, p_args = split_args(
+            'Avg',
+            {
+                'kernel_size': 3,
+                'stride': 1,
+                'padding': 1
+            }
+        )
+        self.branch_pool = nn.Sequential(
+            Pool[pool, spatial_dims](**p_args),
+            Convolution(spatial_dims, in_channels, 192, kernel_size=1)
+        )
+
+    def forward(self, x):
+        branch1x1 = self.branch1x1(x)
+        branch7x7 = self.branch7x7(x)
+        branch7x7dbl = self.branch7x7dbl_1(x)
+        branch_pool = self.branch_pool(x)
+        return torch.cat((branch1x1, branch7x7, branch7x7dbl, branch_pool), dim=1)
+
+
+class InceptionD(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.branch3x3 = nn.Sequential(
+            Convolution(spatial_dims, in_channels, 192, kernel_size=1),
+            Convolution(spatial_dims, 192, 320, kernel_size=3, stride=2)
+        )
+
+        self.branch7x7x3 = nn.Sequential(
+            Branch(spatial_dims, in_channels, 192, 192,
+                   kernal_size=7, padding=3, units=1, factored=True),
+            Convolution(spatial_dims, 192, 192, kernel_size=3, stride=2)
+        )
+
+        pool, p_args = split_args(
+            'Max',
+            {
+                'kernel_size': 3,
+                'stride': 2,
+            }
+        )
+        self.branch_pool = nn.Sequential(
+            Pool[pool, spatial_dims](**p_args),
+            Convolution(spatial_dims, in_channels, 192, kernel_size=1)
+        )
+
+    def forward(self, x):
+        branch3x3 = self.branch3x3(x)
+        branch7x7x3 = self.branch7x7x3(x)
+        branch_pool = self.branch_pool(x)
+        return torch.cat((branch3x3, branch7x7x3, branch_pool), dim=1)
+
+
+class InceptionE(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.spatial_dims = spatial_dims
+        self.branch1x1 = Convolution(
+            spatial_dims, in_channels, 320, kernel_size=1)
+
+        self.branch3x3_1 = Convolution(
+            spatial_dims, in_channels, 384, kernel_size=1)
+        self.branch3x3dbl_1 = Convolution(
+            spatial_dims, in_channels, 448, kernel_size=1)
+        if spatial_dims == 2:
+            self.branch3x3_2a = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 3), padding=(0, 1))
+            self.branch3x3_2b = Convolution(
+                spatial_dims, 384, 384, kernel_size=(3, 1), padding=(1, 0))
+            self.branch3x3dbl_3a = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 3), padding=(0, 1))
+            self.branch3x3dbl_3b = Convolution(
+                spatial_dims, 384, 384, kernel_size=(3, 1), padding=(1, 0))
+        elif spatial_dims == 3:
+            self.branch3x3_2a = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 1, 3), padding=(0, 0, 1))
+            self.branch3x3_2b = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 3, 1), padding=(0, 1, 0))
+            self.branch3x3_2c = Convolution(
+                spatial_dims, 384, 384, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+            self.branch3x3dbl_3a = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 1, 3), padding=(0, 0, 1))
+            self.branch3x3dbl_3b = Convolution(
+                spatial_dims, 384, 384, kernel_size=(1, 3, 1), padding=(0, 1, 0))
+            self.branch3x3dbl_3c = Convolution(
+                spatial_dims, 384, 384, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+        else:
+            raise KeyError(
+                f"spatial dims ({spatial_dims}) must be `3` or `2`.")
+
+        self.branch3x3dbl_1 = Convolution(
+            spatial_dims, in_channels, 448, kernel_size=1)
+        self.branch3x3dbl_2 = Convolution(
+            spatial_dims, 448, 384, kernel_size=3, padding=1)
+
+        self.branch_pool = nn.Sequential(
+            make_pool('Avg', kernel_size=3, stride=1, padding=1),
+            Convolution(spatial_dims, in_channels, 192, kernel_size=1)
+        )
+
+    def forward(self, x):
+        branch1x1 = self.branch1x1(x)
+
+        branch3x3 = self.branch3x3_1(x)
+        branch3x3_ = [
+            self.branch3x3_2a(branch3x3),
+            self.branch3x3_2b(branch3x3),
+        ]
+        if self.spatial_dims == 3:
+            branch3x3_.append(
+                self.branch3x3_2c(branch3x3)
+            )
+        branch3x3 = torch.cat(branch3x3_, 1)
+
+        branch3x3dbl = self.branch3x3dbl_1(x)
+        branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
+        branch3x3dbl_ = [
+            self.branch3x3dbl_3a(branch3x3dbl),
+            self.branch3x3dbl_3b(branch3x3dbl),
+        ]
+        if self.spatial_dims == 3:
+            branch3x3dbl_.append(
+                self.branch3x3dbl_3c(branch3x3dbl)
+            )
+        branch3x3dbl = torch.cat(branch3x3dbl_, 1)
+
+        branch_pool = self.branch_pool(branch_pool)
+
+        outputs = [branch1x1, branch3x3, branch3x3dbl, branch_pool]
+        return torch.cat(outputs, dim=1)
+
 
 class InceptionAux(nn.Module):
     def __init__(
@@ -311,8 +580,8 @@ class InceptionV1(nn.Module):
         x, aux2, aux1 = self.backbone(data)
         y = self.classifier(x)
         if self.training and self.aux1 is not None and self.aux2 is not None:
-            y2 = self.aux2(aux2)
             y1 = self.aux1(aux1)
+            y2 = self.aux2(aux2)
             return y, y2, y1
         else:
             return y
