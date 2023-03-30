@@ -9,18 +9,19 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 from torch.cuda.amp import GradScaler, autocast
-from torchio import DATA
+from torchio import DATA, Subject, LabelMap
 import torchio as tio
 import pandas as pds
 
 from ABrain.modelzoo import UNet3D
+from ABrain.modelzoo.losses import DiceLoss3D
 from ABrain.dataset import IBSR18, DatasetWapper, TioDataSet, Subset
 from ABrain.transforms import ZNormalization, HistogramStandardization, ToCanonical
 from ABrain.transforms import Pad, Crop
 from ABrain.transforms import RandomFlip, RandomAffine, RandomGhosting, RandomElasticDeformation, RandomGamma, Pad
 from ABrain.transforms import Compose
 from ABrain.trainer.watchdog import WatchDog, Sniffer
-from ABrain.evaluation import dice
+from ABrain.evaluation import dice, VoxelMethods, VoxelMetrics, HausdorffDistance95, ComposeAnalyzer
 from ABrain.inference import UNet3DGridPatch, UNet3DGridAggregator
 
 
@@ -29,19 +30,21 @@ arg_parser.add_argument('--epochs', type=int, default=300, help='训练回合数
 arg_parser.add_argument('--resume', action='store_true', help='是否接上次训练')
 arg_parser.add_argument('--test', action='store_true', help='在测试集上执行测试')
 arg_parser.add_argument('--lr', type=float, default=3e-4, help='学习率')
-arg_parser.add_argument('--batch_size', type=int,
+arg_parser.add_argument('--batch-size', type=int,
                         default=8, help='Mini-Batch大小')
-arg_parser.add_argument('--patch_size', nargs=3,
+arg_parser.add_argument('--patch-size', nargs=3,
                         type=int, required=True, help='训练块大小')
 arg_parser.add_argument(
     '--runs', type=str, default='./runs', help='训练参数及过程记录存放的文件夹')
 # arg_parser.add_argument('--label_names',)
-arg_parser.add_argument('--gpu_id', type=int, default=1, help='GPU ID')
+arg_parser.add_argument('--gpu-id', type=int, default=1, help='GPU ID')
 arg_parser.add_argument('--inference', type=str,
                         default="./inference", help='预测结果存放位置')
 arg_parser.add_argument(
-    '--best_model', action='store_true', help="从验证集上最好的那套参数开始工作")
-arg_parser.add_argument('--compile_mode',help="Torch 2.0 compile mode",type=str,default='default')
+    '--best-model', action='store_true', help="从验证集上最好的那套参数开始工作")
+arg_parser.add_argument(
+    '--compile-mode', help="Torch 2.0 compile mode", type=str, default='default')
+arg_parser.add_argument('--label-smooth', help="标签平滑", type=float, default=0.)
 
 args = arg_parser.parse_args()
 
@@ -58,13 +61,18 @@ label_names = ['BG', 'CSF', 'GM', 'WM']
 run_dir = args.runs
 best_dir = os.path.join(run_dir, 'best')
 logging.basicConfig(level=logging.INFO)
+if not os.path.exists(run_dir):
+    os.makedirs(run_dir)
 log_path = os.path.join(run_dir, "latest_run.log")
 handler = logging.FileHandler(log_path, mode='a+')
 logging.getLogger().addHandler(handler)
 
-
-device = torch.device(f"cuda:{args.gpu_id}")
-loss_func = nn.CrossEntropyLoss()
+if args.gpu_id < 0:
+    device = torch.device('cpu')
+else:
+    device = torch.device(f"cuda:{args.gpu_id}")
+loss_func = nn.CrossEntropyLoss(label_smoothing=args.label_smooth)
+# loss_func = DiceLoss3D()
 
 database = "/home/zhanghongda/Datasets/IBSR_nifti_stripped"
 
@@ -83,6 +91,9 @@ augmentations = Compose([
 
 logging.info(f"Using `3D U-Net` as the base model.")
 model = UNet3D(in_chs=1, n_class=4, input_size=(128, 128, 128))
+
+logging.info(f"[Compile]: mode --> {args.compile_mode}")
+model = torch.compile(model, mode=args.compile_mode)
 
 
 class CSF_Sniffer(Sniffer):
@@ -107,20 +118,24 @@ if resume or args.test:
     else:
         logging.info("Loading `latest` snapshoot...")
         target_dir = run_dir
-    state_train = torch.load(os.path.join(target_dir, 'train.state'))
+    # model
     state_model = torch.load(os.path.join(target_dir, 'model.state'))
-    state_optimizer = torch.load(os.path.join(target_dir, 'optim.state'))
-    start = state_train['current_epoch']+1
     model.load_state_dict(state_model)
     model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    optimizer.load_state_dict(state_optimizer)
-    watchdog.load_state(state_train['watchdog'])
+
+    # training..
+    if not args.test:
+        state_train = torch.load(os.path.join(target_dir, 'train.state'))
+        state_optimizer = torch.load(os.path.join(target_dir, 'optim.state'))
+        start = state_train['current_epoch']+1
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        optimizer.load_state_dict(state_optimizer)
+        watchdog.load_state(state_train['watchdog'])
 
     state_model = None
     state_train = None
     state_optimizer = None
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
 else:
     logging.info("Training from scratch...")
@@ -129,8 +144,7 @@ else:
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
 scaler = GradScaler()
-logging.info(f"[Compile]: mode --> {args.compile_mode}")
-model = torch.compile(model,mode=args.compile_mode)
+
 
 def parse_data(package, device):
     img = package['img'][DATA]
@@ -208,7 +222,7 @@ if not args.test:
                 out = model(input)
                 loss = loss_func(out, target)
                 watchdog.catch(loss, out, target, mode='validate')
-        current = watchdog.step()
+        current = str(watchdog.step())[1:-1]
         logging.info(f"[Epoch {epoch+1}]:{current}")
         if watchdog.happy():
             logging.info(f"[Better weight]:{current}")
@@ -231,6 +245,10 @@ if args.test:
     dataset = Subset(dataset, list(range(10, 18)))
     dataset = DatasetWapper(dataset)
     result = []
+    test_func = ComposeAnalyzer(
+        HausdorffDistance95(label_names),
+        VoxelMetrics(VoxelMethods.keys(), label_names)
+    )
     for each in dataset:
         with torch.no_grad():
             subject = trans_test(each)
@@ -242,11 +260,15 @@ if args.test:
                 logits = model(img.to(device))
                 aggregator.add_batch(logits, locations)
             output = aggregator.get_output_tensor()
-            d = dice(output.argmax(dim=0), seg, n_labels=4)
-            metrics = {n: c for n, c in zip(label_names, d)}
-            metrics['name']=name
-            logging.info(f"[Metrics]: {metrics}")
+
+            metrics = test_func(Subject(
+                name=name,
+                true=subject['seg'],
+                pred=LabelMap(tensor=output.argmax(dim=0, keepdim=True))
+            ))
+            msg = str(metrics)[1:-1]
+            logging.info(f"[Metrics]: {msg}")
             torch.save(output, name)
             result.append(metrics)
     result = pds.DataFrame(result)
-    print(result)
+    result.to_csv("test.csv")
