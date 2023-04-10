@@ -9,16 +9,24 @@ from torchdata.datapipes import iter
 
 
 def read_config():
-    with open("database.toml","r") as f:
+    with open("database.toml", "r") as f:
         return toml.load(f)
 
 
 class OurDataset(object):
-    def __init__(self, database, has_seg: bool = False) -> None:
+    def __init__(
+        self,
+        database,
+        has_seg: bool = False,
+        has_label: bool = False,
+        has_info: bool = False
+    ) -> None:
         super().__init__()
         self.database = database
         self.sids = self.get_samples(database)
         self.has_seg = has_seg
+        self.has_label = has_label
+        self.has_info = has_info
 
     def __len__(self):
         return len(self.sids)
@@ -38,6 +46,8 @@ class Subset(OurDataset):
         self.dataset = dataset
         self.ids = ids
         self.has_seg = dataset.has_seg
+        self.has_label = dataset.has_label
+        self.has_info = dataset.has_info
         self.sids = [dataset.sids[i] for i in ids]
 
     def __len__(self):
@@ -70,7 +80,7 @@ def test_subjects(x):
 
 class DatasetWapper(Dataset):
 
-    def __init__(self, dataset: OurDataset, transforms: Compose=None) -> None:
+    def __init__(self, dataset: OurDataset, transforms: Compose = None) -> None:
         super().__init__()
         self.ds = dataset
         self.ts = transforms
