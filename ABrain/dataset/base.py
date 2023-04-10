@@ -8,21 +8,34 @@ from torch.utils.data import Dataset
 from torchdata.datapipes import iter
 
 
-def read_config():
+def read_config(conf_name:str):
     with open("database.toml", "r") as f:
-        return toml.load(f)
+        config = toml.load(f)
+    if conf_name in config.keys():
+        return config[conf_name]
+    else:
+        datasets = config["Dataset"]
+        n = len(datasets)
+        keys = {datasets[i]["name"]:i for i in range(n)}
+        if conf_name in keys:
+            return datasets[keys[conf_name]]
+        else:
+            raise KeyError(f"{conf_name} is not a dataset.")
+
 
 
 class OurDataset(object):
     def __init__(
         self,
         database,
+        name:str,
         has_seg: bool = False,
         has_label: bool = False,
         has_info: bool = False
     ) -> None:
         super().__init__()
         self.database = database
+        self.name = name
         self.sids = self.get_samples(database)
         self.has_seg = has_seg
         self.has_label = has_label

@@ -17,6 +17,6 @@ class TestTDSC(unittest.TestCase):
             d[each]+=1
         print(d) # {'M': 58, 'B': 42}
 
-        ds = DatasetWapper(ds)
+        ds = DatasetWapper(ds,lambda x:x)
         for each in ds:
             print(each.spacing,each.shape)

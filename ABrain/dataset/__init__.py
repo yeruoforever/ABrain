@@ -3,6 +3,8 @@ from .knee import *
 from .MRBrains import *
 from .ILSVRC2010 import *
 from .IBSR import *
+from .Kits import Kits21
+from .TDSC import ABUS23
 from torchio.data import SubjectsDataset as TioDataSet
 __all__ = [
     'Dataset', 'OurDataset', 'Subset',
@@ -12,5 +14,7 @@ __all__ = [
     'ILSVRC2010Train', 'ILSVRC2010Valitation', 'ILSVRC2010Test',
     'MRBrains18',
     'KneeHighResTrain',
-    'KneeHighResVal'
+    'KneeHighResVal',
+    'Kits21',
+    'ABUS23'
 ]

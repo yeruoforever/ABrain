@@ -11,11 +11,12 @@ class Kits21(OurDataset):
         assert seg_mode in ["AND","MAJ","OR","RAND"]
         self.SMOD = ["AND","MAJ","OR"]
         self.seg_mode = seg_mode
-        config = read_config()
-        database = config["Kits21"]["database"]
-        info = config["Kits21"]["metainfo"]
+        config = read_config("Kits21")
+        database = config["database"]
+        info = config["metainfo"]
         super().__init__(
             database,
+            "Kits21",
             has_seg=True,
             has_info=True,
             has_label=False

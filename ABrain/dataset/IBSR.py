@@ -10,6 +10,7 @@ class IBSR18(OurDataset):
     def __init__(self, database, transforms: Optional[tio.Transform] = None, target: int = 2) -> None:
         super().__init__(
             database,
+            "IBSR18",
             has_info=False,
             has_seg=True,
             has_label=False
