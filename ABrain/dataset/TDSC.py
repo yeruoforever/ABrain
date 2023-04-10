@@ -5,13 +5,11 @@ import pandas as pds
 from .base import OurDataset,read_config
 
 
-
-
 class ABUS23(OurDataset):
     def __init__(self) -> None:
         config = read_config()
         database = config["TDSC-ABUS"]["database"]
-        super().__init__(database, has_seg=True)
+        super().__init__(database, has_seg=True,has_label=True)
         label_file = config["TDSC-ABUS"]["labels"]
         label_file = os.path.join(database,label_file)
         df = pds.read_csv(label_file)

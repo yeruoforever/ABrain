@@ -8,7 +8,12 @@ from .base import OurDataset
 
 class IBSR18(OurDataset):
     def __init__(self, database, transforms: Optional[tio.Transform] = None, target: int = 2) -> None:
-        super().__init__(database, True)
+        super().__init__(
+            database,
+            has_info=False,
+            has_seg=True,
+            has_label=False
+        )
         self.ts = transforms
         seg_mode = ["TRI_fill", "TRI", ""]
         self.mode = seg_mode[target]
