@@ -1,9 +1,16 @@
+import toml
+
 from torchio import Subject, ScalarImage, LabelMap
 from torchio import Compose
 from torchio.transforms.augmentation import RandomTransform
 
 from torch.utils.data import Dataset
 from torchdata.datapipes import iter
+
+
+def read_config():
+    with open("database.toml","r") as f:
+        return toml.load(f)
 
 
 class OurDataset(object):
