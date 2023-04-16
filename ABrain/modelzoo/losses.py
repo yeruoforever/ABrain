@@ -49,7 +49,7 @@ class GeneralizedDiceLoss3D(Module):
         # input=input[:,1:,...]
         # target=target[:,1:,...]
         numerator = (2*input*target).sum(dim=(1, 2, 3, 4))+smooth
-        denominator = (input*+target).sum(dim=(1, 2, 3, 4))+smooth
+        denominator = (input+target).sum(dim=(1, 2, 3, 4))+smooth
         dice = numerator/denominator
         loss = 1-dice
         return loss.mean()
