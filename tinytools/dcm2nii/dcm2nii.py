@@ -49,7 +49,7 @@ def convert_dcm_nii(dcm: str, nii_dir: str):
         itk.WriteImage(image, output)
 
 
-def get_series_info(dcm_dir: str) -> bool:
+def get_series_info(dcm_dir: str):
     files = os.listdir(dcm_dir)
     files = list(filter(lambda x: x.endswith(".dcm"), files))
     dcm = pydicom.read_file(os.path.join(dcm_dir, files[0]))
