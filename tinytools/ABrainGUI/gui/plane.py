@@ -157,7 +157,7 @@ def overlay_msg(conf: WindowConfig):
         # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
         # | imgui.WINDOW_NO_MOVE,
     ):
-        t = conf.step()
+        t = conf.step()+1e-4
         msg = "%3.2f fps" % (1 / t)
         imgui.text(f"Patient Name       \t:\tXU KUN CAI")
         imgui.text(f"Patient Age        \t:\t38")
