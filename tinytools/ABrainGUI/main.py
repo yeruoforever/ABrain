@@ -15,10 +15,15 @@ from texture import *
 ProgramTuple = namedtuple("ProgramTuple", ["prog", "ptr"])
 
 
+MSG_WIDTH = 330
+
+
 class ABrainApp(object):
     def __init__(self) -> None:
         self.W = 1280
         self.H = 720
+        self.viewport_W = self.W - MSG_WIDTH
+        self.viewport_H = self.H
         self.changed = False
         self.init_glfw()
 
@@ -30,8 +35,15 @@ class ABrainApp(object):
 
         self.mouse_button_state = [False, False]
         self.mouse_position = [0.0, 0.0]
+        self.mouse_location = PLANE_CORONAL
 
         self.init_glfw()
+
+    def adjust_viewport_size(self, W, H):
+        self.W = W
+        self.H = H
+        self.viewport_W = W - MSG_WIDTH
+        self.viewport_H = H
 
     def init_glfw(self):
         if glfw.init() == 0:
@@ -47,7 +59,7 @@ class ABrainApp(object):
     def change_window_size(self, window, width, height):
         self.changed = True
         # self.W, self.H = glfw.get_framebuffer_size(window)
-        self.W, self.H = width, height
+        self.adjust_viewport_size(width, height)
         self.conf.screen = [self.W * self.conf.scale, self.H * self.conf.scale]
 
     def mouse_butten_callback(self, window, button, action, mod):
@@ -67,6 +79,28 @@ class ABrainApp(object):
         print(self.mouse_position)
         self.mouse_position[0] = xpos
         self.mouse_position[1] = ypos
+        if self.conf.plane_type == PlANE_ALL:
+            w, h = self.viewport_W, self.viewport_H
+            hw, hh = w / 2, h / 2
+            if xpos > 0 and xpos < hw:
+                if ypos > 0 and ypos < hh:
+                    self.mouse_location = PLANE_CROSS
+                elif ypos > hh and ypos < h:
+                    self.mouse_location = PLANE_CORONAL
+                else:
+                    self.mouse_location = PlANE_ALL
+            elif xpos > hw and xpos < w:
+                if ypos > 0 and ypos < hh:
+                    self.mouse_location = PLANE_SAGITTAL
+                elif ypos > hh and ypos < h:
+                    self.mouse_location = PLANE_3D
+                else:
+                    self.mouse_location = PlANE_ALL
+            else:
+                self.mouse_location = PlANE_ALL
+            self.mouse_location = PlANE_ALL
+        else:
+            self.mouse_location = self.conf.plane_type
 
     def set_glfw(self, window):
         glfw.make_context_current(window)
@@ -102,7 +136,8 @@ class ABrainApp(object):
         glUniform1i(self.program_plane.ptr["plane"], self.conf.plane_type)
         glUniform2f(self.program_plane.ptr["hu_range"], *self.conf.hu_range)
         glUniform3f(self.program_plane.ptr["center"], *self.conf.center)
-        WH = [self.W * self.conf.scale, self.H * self.conf.scale]
+        W, H = self.viewport_W, self.viewport_H
+        WH = [W * self.conf.scale, H * self.conf.scale]
         glUniform2f(self.program_plane.ptr["WH"], *WH)
         glUniform3f(self.program_plane.ptr["ABC"], *self.conf.region)
 
@@ -152,7 +187,7 @@ class ABrainApp(object):
     def draw_panes(self):
         if self.conf.current_file == "":
             return
-        w, h = glfw.get_framebuffer_size(self.window)
+        w, h = self.viewport_W, self.viewport_H
         if self.conf.plane_type == PlANE_ALL:
             glViewport(0, 0, w // 2, h // 2)
             self.draw_plane(PLANE_CROSS)
