@@ -76,18 +76,24 @@ class ABrainApp(object):
         print(self.mouse_button_state)
 
     def mouse_postion_callback(self, window, xpos, ypos):
-        print(self.mouse_position)
+        # print(self.mouse_position)
         self.mouse_position[0] = xpos
         self.mouse_position[1] = ypos
+        print(self.conf.plane_type==PlANE_ALL)
         if self.conf.plane_type == PlANE_ALL:
             w, h = self.viewport_W, self.viewport_H
             hw, hh = w / 2, h / 2
+            print(hw,hh,xpos,ypos)
             if xpos > 0 and xpos < hw:
+                print("condition 1")
                 if ypos > 0 and ypos < hh:
+                    print("condition 11",PLANE_CROSS)
                     self.mouse_location = PLANE_CROSS
                 elif ypos > hh and ypos < h:
                     self.mouse_location = PLANE_CORONAL
+                    print("condition 12",PLANE_CORONAL)
                 else:
+                    print("condition 13")
                     self.mouse_location = PlANE_ALL
             elif xpos > hw and xpos < w:
                 if ypos > 0 and ypos < hh:
@@ -101,6 +107,7 @@ class ABrainApp(object):
             self.mouse_location = PlANE_ALL
         else:
             self.mouse_location = self.conf.plane_type
+        print(xpos,ypos,self.mouse_location,self.viewport_W,self.viewport_H,)
 
     def set_glfw(self, window):
         glfw.make_context_current(window)
@@ -167,8 +174,8 @@ class ABrainApp(object):
     def load_programs(self):
         program, ptrs = plane_shader()
         self.program_plane = ProgramTuple(prog=program, ptr=ptrs)
-        program, ptrs = volume_shader()
-        self.program_3d = ProgramTuple(prog=program, ptr=ptrs)
+        # program, ptrs = volume_shader()
+        # self.program_3d = ProgramTuple(prog=program, ptr=ptrs)
 
     def prepare_vertex(self):
         self.plane_VAO = plane_buffers()

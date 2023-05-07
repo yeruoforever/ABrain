@@ -171,15 +171,16 @@ def overlay_msg(conf: WindowConfig):
 
 def camera_msg(conf: WindowConfig):
     with imgui.begin("Camera", flags=imgui.WINDOW_NO_TITLE_BAR):
-        imgui.button("Reset Camera")
         clicked, current = imgui.combo(
-            "View",
+            "",
             conf.plane_type,
             ["All", "Cross", "Coronal", "Sagittal", "3D"],
         )
         if clicked and current != conf.plane_type:
             conf.plane_type = current
-            return True
+        imgui.same_line(spacing=1)
+        imgui.button("Reset Camera")
+        return True
 
 
 def view_select(conf: WindowConfig):
