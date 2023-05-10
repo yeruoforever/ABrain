@@ -4,6 +4,8 @@ from typing import *
 import OpenGL.GL.shaders as shaders
 from OpenGL.GL import *
 
+__all__ = ["load_shader_from_text", "shader_ptrs"]
+
 
 def read_from_text(path: str):
     with open(path, "r") as io:
@@ -41,35 +43,3 @@ def shader_ptrs(program, symbols: Iterable[str]):
         loc = glGetUniformLocation(program, s)
         out[s] = loc
     return out
-
-
-def plane_shader(vertex_source=None, fragment_source=None):
-    program = load_shader_from_text("plane", vertex_source, fragment_source)
-    symbols = ["hu_range", "img", "WH", "ABC", "center", "plane"]
-    ptrs = shader_ptrs(program, symbols)
-    return program, ptrs
-
-
-def font_shader(vertex_source=None, fragment_source=None):
-    program = load_shader_from_text("font", vertex_source, fragment_source)
-    symbols = ["text", "textColor", "projection"]
-    ptrs = shader_ptrs(program, symbols)
-    return program, ptrs
-
-
-def volume_shader(vertex_source=None, fragment_source=None):
-    program = load_shader_from_text("3D", vertex_source, fragment_source)
-    symbols = [
-        "volume",
-        "model",
-        "view",
-        "projection",
-        "color_1",
-        "color_bg",
-        "model_i",
-    ]
-    ptrs = shader_ptrs(program, symbols)
-    return program, ptrs
-
-
-__all__ = ["plane_shader", "font_shader", "volume_shader"]

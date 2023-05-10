@@ -1,252 +1,214 @@
 import sys
-from collections import namedtuple
+import os
+from typing import *
 
 import glfw
-import imgui
+import glm
 import numpy as np
-from buffer import *
-from gui.plane import *
-from imgui.integrations.glfw import GlfwRenderer, ProgrammablePipelineRenderer
-from niiio import *
+from gui import *
 from OpenGL.GL import *
 from shader import *
-from texture import *
+from status import *
+from utils import *
+from neuron import *
 
-ProgramTuple = namedtuple("ProgramTuple", ["prog", "ptr"])
+with open(
+    os.path.join(os.path.dirname(__file__), "vertex.vert"),
+    "r",
+) as f:
+    vertex_source = f.read()
+vertex_ptrs = ["screen_size", "screen_plane", "eye", "V2W"]
+with open(
+    os.path.join(os.path.dirname(__file__), "fragment.frag"),
+    "r",
+) as f:
+    fragment_source = f.read()
+fragment_ptrs = [
+    "step",
+    "alpha",
+    "pix_min",
+    "pix_max",
+    "eye",
+    "cube_a",
+    "cube_b",
+    "W2M",
+    "volume",
+]
 
 
-MSG_WIDTH = 330
-
-
-class ABrainApp(object):
+class Render(object):
     def __init__(self) -> None:
-        self.W = 1280
-        self.H = 720
-        self.viewport_W = self.W - MSG_WIDTH
-        self.viewport_H = self.H
-        self.changed = False
+        self.init_status()
         self.init_glfw()
+        self.init_gui()
 
-        self.texture_img = -1
-        self.texture_seg = -1
-        self.program_plane = None
-        self.program_3d = None
-        self.plane_VAO = None
+        self.create_buffer()
+        self.create_shader()
+        self.create_texture()
 
-        self.mouse_button_state = [False, False]
-        self.mouse_position = [0.0, 0.0]
-        self.mouse_location = PLANE_CORONAL
+    def __del__(self):
+        pass
 
-        self.init_glfw()
+    def init_status(self):
+        self.state = Status()
 
-    def adjust_viewport_size(self, W, H):
-        self.W = W
-        self.H = H
-        self.viewport_W = W - MSG_WIDTH
-        self.viewport_H = H
+    def init_gui(self):
+        self.gui = GUI(self.window, self.state)
+
+    def create_shader(self):
+        self.shader = load_shader_from_text(None, vertex_source, fragment_source)
+        symbols = set(vertex_ptrs + fragment_ptrs)
+        self.ptrs = shader_ptrs(self.shader, symbols)
+        print(self.ptrs)
+
+    def create_buffer(self):
+        vertices = np.array(
+            [[-0.5, -0.5], [-0.5, +0.5], [+0.5, -0.5], [+0.5, +0.5]],
+            dtype=np.float32,
+        )
+        self.vao = glGenVertexArrays(1)
+        vbo = glGenBuffers(1)
+        with VAO(self.vao):
+            with Buffer(vbo, GL_ARRAY_BUFFER):
+                glBufferData(GL_ARRAY_BUFFER, None, vertices, GL_STATIC_DRAW)
+                glVertexAttribPointer(
+                    0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), ctypes.c_void_p(0)
+                )
+                glEnableVertexAttribArray(0)
+
+    def load_volume_texture(self, img: np.ndarray):
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        bg_img = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER)
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER)
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER)
+        glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, bg_img)
+        glTexImage3D(
+            GL_TEXTURE_3D,
+            0,
+            GL_R32F,
+            *img.shape,
+            0,
+            GL_RED,
+            GL_FLOAT,
+            img.ctypes.data_as(GLvoidp)
+        )
+        glGenerateMipmap(GL_TEXTURE_3D)
+
+    def create_texture(
+        self, img: Optional[np.ndarray] = None, seg: Optional[np.ndarray] = None
+    ):
+        if img is None and seg is None:
+            self.texture_img = 0
+            self.texture_seg = 0
+        else:
+            if self.texture_img != 0:
+                glDeleteTextures(1, self.texture_img)
+            if self.texture_seg != 0:
+                glDeleteTextures(1, self.texture_seg)
+            self.texture_img = glGenTextures(1)
+            self.texture_seg = glGenTextures(1)
+            with Texture(self.texture_img, GL_TEXTURE_3D):
+                self.load_volume_texture(img)
+            with Texture(self.texture_seg, GL_TEXTURE_3D):
+                self.load_volume_texture(seg)
 
     def init_glfw(self):
         if glfw.init() == 0:
             exit()
-
         glfw.default_window_hints()
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 2)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         if sys.platform == "darwin":
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
             glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
 
-    def change_window_size(self, window, width, height):
-        self.changed = True
-        # self.W, self.H = glfw.get_framebuffer_size(window)
-        self.adjust_viewport_size(width, height)
-        self.conf.screen = [self.W * self.conf.scale, self.H * self.conf.scale]
-
-    def mouse_butten_callback(self, window, button, action, mod):
-        if button == glfw.MOUSE_BUTTON_LEFT:
-            button_id = 0
-        elif button == glfw.MOUSE_BUTTON_RIGHT:
-            button_id = 1
-        else:
-            return
-        if action == glfw.PRESS:
-            self.mouse_button_state[button_id] = True
-        elif action == glfw.RELEASE:
-            self.mouse_button_state[button_id] = False
-        print(self.mouse_button_state)
-
-    def mouse_postion_callback(self, window, xpos, ypos):
-        self.mouse_position[0] = xpos
-        self.mouse_position[1] = ypos
-        if self.conf.plane_type == PlANE_ALL:
-            w, h = self.viewport_W, self.viewport_H
-            hw, hh = w / 2, h / 2
-            if xpos > 0 and xpos < hw:
-                if ypos > 0 and ypos < hh:
-                    self.mouse_location = PLANE_CROSS
-                elif ypos > hh and ypos < h:
-                    self.mouse_location = PLANE_CORONAL
-                else:
-                    self.mouse_location = PlANE_ALL
-            elif xpos > hw and xpos < w:
-                if ypos > 0 and ypos < hh:
-                    self.mouse_location = PLANE_SAGITTAL
-                elif ypos > hh and ypos < h:
-                    self.mouse_location = PLANE_3D
-                else:
-                    self.mouse_location = PlANE_ALL
-            else:
-                self.mouse_location = PlANE_ALL
-        else:
-            self.mouse_location = self.conf.plane_type
-        print("Mouse in plane id:",self.mouse_location)
-
-    def set_glfw(self, window):
+        width, height = self.state.screen_size
+        window = glfw.create_window(width, height, "ABrain", None, None)
+        if not window:
+            exit()
+        self.window = window
         glfw.make_context_current(window)
-        glfw.set_framebuffer_size_callback(window, self.change_window_size)
-        glfw.set_mouse_button_callback(window, self.mouse_butten_callback)
-        glfw.set_cursor_pos_callback(window, self.mouse_postion_callback)
+
+    def prepare_glfw(self):
         glfw.swap_interval(1)
 
-    def set_opengl(self):
-        glClearColor(0.0, 0.0, 0.0, 1.0)
+    def prepare_opengl(self):
+        glClearColor(0.1, 0.1, 0.2, 1)
 
-    def get_img_texture(self):
-        img, spacing = load_nii(self.conf.input_file)
-        texture = volume_texture(img)
-        self.conf.shape = list(img.shape)
-        self.texture_img = texture
-        self.conf.spacing = list(spacing)
-        region = np.array(img.shape) * np.array(spacing)
-        self.conf.region = region.tolist()
-        self.conf.center = (region / 2).tolist()
+    def update_shader(self):
+        glUniform2f(
+            self.ptrs["screen_size"], self.state.viewport[1], self.state.viewport[3]
+        )
+        glUniform3f(
+            self.ptrs["screen_plane"],
+            self.state.view_radians,
+            self.state.view_near,
+            self.state.view_far,
+        )
+        view_i = glm.inverse(self.state.camera_lookat())
+        glUniformMatrix4fv(
+            self.ptrs["V2W"],
+            1,
+            GL_FALSE,
+            glm.value_ptr(view_i),
+        )
+        glUniform3f(self.ptrs["eye"], *self.state.camera_origin)
+        glUniform1f(self.ptrs["step"], self.state.ray_step)
+        glUniform1f(self.ptrs["alpha"], self.state.ray_alpha)
+        glUniform1f(self.ptrs["pix_min"], self.state.voxel_min)
+        glUniform1f(self.ptrs["pix_max"], self.state.voxel_max)
+        bbox = self.state.cube_bounding()
+        glUniform3fv(self.ptrs["cube_a"], 1, GL_FALSE, glm.value_ptr(bbox[0]))
+        glUniform3fv(self.ptrs["cube_b"], 1, GL_FALSE, glm.value_ptr(bbox[1]))
+        # only need load once
+        glUniformMatrix4fv(
+            self.ptrs["W2M"], 1, GL_FALSE, glm.value_ptr(self.state.mat_W2M())
+        )
 
-    def do_diff(self):
-        if self.conf.need_to_load():
-            print("open", self.conf.input_file)
-            self.drop_texture()
-            self.get_img_texture()
-            self.conf.swap_current_file()
-            # TODO  加载Seg
-        self.pass_paramter()
+    def update_texture(self):
+        if self.state.need_reload_file():
+            print("Reload texture")
+            img, spacing = get_img(self.state.input_file)
+            seg = get_seg(self.state.input_file)
+            print(img.shape, spacing)
+            self.state.update_img_meta(spacing, img.shape, "CT")
+            self.create_texture(img, seg)
+            self.state.update_file_history()
+            self.state.reset_camera()
 
-    def pass_paramter(self):
-        glUseProgram(self.program_plane.prog)
-        glUniform1i(self.program_plane.ptr["plane"], self.conf.plane_type)
-        glUniform2f(self.program_plane.ptr["hu_range"], *self.conf.hu_range)
-        glUniform3f(self.program_plane.ptr["center"], *self.conf.center)
-        W, H = self.viewport_W, self.viewport_H
-        WH = [W * self.conf.scale, H * self.conf.scale]
-        glUniform2f(self.program_plane.ptr["WH"], *WH)
-        glUniform3f(self.program_plane.ptr["ABC"], *self.conf.region)
+    def update_screen_size(self):
+        glViewport(*self.state.viewport)
 
-    def create_window(self):
-        window = glfw.create_window(self.W, self.H, "ABrain", None, None)
-        glfw.make_context_current(window)
-        self.window = window
-        return window
-
-    def init_imgui(self, window):
-        imgui.create_context()
-        # io = imgui.get_io()
-        # io.display_size = 640, 480
-        # io.config_flags |= imgui
-        impl = GlfwRenderer(window)
-        # return impl, io
-        return impl
-
-    def input_events(self):
-        glfw.poll_events()
-        self.gui.process_inputs()
-
-    def prepare_rander(self):
-        imgui.new_frame()
-        glClear(GL_COLOR_BUFFER_BIT)
-
-    def load_programs(self):
-        program, ptrs = plane_shader()
-        self.program_plane = ProgramTuple(prog=program, ptr=ptrs)
-        # program, ptrs = volume_shader()
-        # self.program_3d = ProgramTuple(prog=program, ptr=ptrs)
-
-    def prepare_vertex(self):
-        self.plane_VAO = plane_buffers()
-        pass
-
-    def draw_plane(self, plane_type):
-        glBindVertexArray(self.plane_VAO.vao)
-        glUseProgram(self.program_plane.prog)
-        glBindTexture(GL_TEXTURE_3D, self.texture_img)
-        glUniform1i(self.program_plane.ptr["plane"], plane_type)
-        glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_INT, ctypes.c_void_p(0))
-
-    def draw_3d(self):
-        pass
-
-    def draw_panes(self):
-        if self.conf.current_file == "":
-            return
-        w, h = self.viewport_W, self.viewport_H
-        if self.conf.plane_type == PlANE_ALL:
-            glViewport(0, 0, w // 2, h // 2)
-            self.draw_plane(PLANE_CROSS)
-            glViewport(0, h // 2, w // 2, h // 2)
-            self.draw_plane(PLANE_CORONAL)
-            glViewport(w // 2, 0, w // 2, h // 2)
-            self.draw_plane(PLANE_SAGITTAL)
-            glViewport(w // 2, h // w, w // 2, h // 2)
-            self.draw_3d()
-        elif self.conf.plane_type == PLANE_3D:
-            glViewport(0, 0, w, h)
-            self.draw_3d()
-        else:
-            glViewport(0, 0, w, h)
-            self.draw_plane(self.conf.plane_type)
+    def check_and_update(self):
+        self.update_screen_size()
+        self.update_texture()
+        self.update_shader()
 
     def do_render(self):
-        imgui.render()
-        self.gui.render(imgui.get_draw_data())
+        glClear(GL_COLOR_BUFFER_BIT)
+        with Program(self.shader):
+            self.check_and_update()
+            if self.state.file_opened:
+                with VAO(self.vao):
+                    with Texture(self.texture_img, GL_TEXTURE_3D):
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+
+    def render_loop(self):
+        glfw.poll_events()
+        with self.gui:
+            self.do_render()
         glfw.swap_buffers(self.window)
 
     def run(self):
-        window = self.create_window()
-        self.conf = WindowConfig(window)
-        self.gui = self.init_imgui(window)
-
-        self.set_glfw(window)
-        self.set_opengl()
-
-        self.load_programs()
-        self.prepare_vertex()
-
-        self.changed = True
-        while glfw.window_should_close(window) == 0:
+        self.prepare_glfw()
+        self.prepare_opengl()
+        while glfw.window_should_close(self.window) == 0:
             self.render_loop()
-
-        self.delete_buffers()
-        self.drop_texture()
         glfw.terminate()
-
-    def render_loop(self):
-        if self.changed:
-            self.do_diff()
-            self.changed = False
-        self.input_events()
-        self.prepare_rander()
-        self.draw_panes()
-        self.changed = some_settings(self.conf)
-        self.do_render()
-
-    def drop_texture(self):
-        glDeleteTextures(1, self.texture_img)
-        self.texture_img = -1
-        glDeleteBuffers(1, self.texture_seg)
-        self.texture_seg = -1
-
-    def delete_buffers(self):
-        delete_vertex_array(self.plane_VAO)
 
 
 if __name__ == "__main__":
-    app = ABrainApp()
-    app.run()
+    render = Render()
+    render.run()
