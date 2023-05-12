@@ -11,8 +11,11 @@ __all__ = [
 def get_img(img: str):
     nii = nib.load(img)
     spacing = nii.header.get_zooms()
-    data = nii.get_fdata().astype(np.float)
-    return data, spacing
+    affine = nii._affine
+    directions = nib.aff2axcodes(affine)
+    data = nii.get_fdata().astype(np.float32)
+    print(directions)
+    return data, spacing, directions
 
 
 def get_seg(img: str):

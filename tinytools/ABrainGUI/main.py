@@ -12,28 +12,7 @@ from status import *
 from utils import *
 from neuron import *
 
-with open(
-    os.path.join(os.path.dirname(__file__), "vertex.vert"),
-    "r",
-) as f:
-    vertex_source = f.read()
-vertex_ptrs = ["screen_size", "screen_plane", "eye", "V2W"]
-with open(
-    os.path.join(os.path.dirname(__file__), "fragment.frag"),
-    "r",
-) as f:
-    fragment_source = f.read()
-fragment_ptrs = [
-    "step",
-    "alpha",
-    "pix_min",
-    "pix_max",
-    "eye",
-    "cube_a",
-    "cube_b",
-    "W2M",
-    "volume",
-]
+DEBUG = True
 
 
 class Render(object):
@@ -56,14 +35,40 @@ class Render(object):
         self.gui = GUI(self.window, self.state)
 
     def create_shader(self):
-        self.shader = load_shader_from_text(None, vertex_source, fragment_source)
-        symbols = set(vertex_ptrs + fragment_ptrs)
-        self.ptrs = shader_ptrs(self.shader, symbols)
-        print(self.ptrs)
+        self.shader_plane = load_shader_from_text("plane")
+        self.shader_3d = load_shader_from_text("3d")
+        symbols = [
+            "plane",
+            "screen",
+            "focus",
+            "slice",
+            "range",
+            "hu_range",
+            "img",
+            "seg",
+        ]
+        self.ptrs_plane = shader_ptrs(self.shader_plane, symbols)
+        symbols = [
+            "fov",
+            "screen",
+            "eye",
+            "V2W",
+            "step",
+            "alpha",
+            "vox_min",
+            "vox_max",
+            "cube_a",
+            "cube_b",
+            "W2M",
+            "img",
+            "seg",
+        ]
+        self.ptrs_3d = shader_ptrs(self.shader_3d, symbols)
+        print(self.ptrs_plane, self.ptrs_3d)
 
     def create_buffer(self):
         vertices = np.array(
-            [[-0.5, -0.5], [-0.5, +0.5], [+0.5, -0.5], [+0.5, +0.5]],
+            [[-1.0, -1.0], [-1.0, +1.0], [+1.0, -1.0], [+1.0, +1.0]],
             dtype=np.float32,
         )
         self.vao = glGenVertexArrays(1)
@@ -79,11 +84,11 @@ class Render(object):
     def load_volume_texture(self, img: np.ndarray):
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        bg_img = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        bg_img = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, bg_img)
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER)
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER)
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER)
-        glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, bg_img)
         glTexImage3D(
             GL_TEXTURE_3D,
             0,
@@ -138,41 +143,52 @@ class Render(object):
         glClearColor(0.1, 0.1, 0.2, 1)
 
     def update_shader(self):
-        glUniform2f(
-            self.ptrs["screen_size"], self.state.viewport[1], self.state.viewport[3]
-        )
-        glUniform3f(
-            self.ptrs["screen_plane"],
-            self.state.view_radians,
-            self.state.view_near,
-            self.state.view_far,
-        )
-        view_i = glm.inverse(self.state.camera_lookat())
-        glUniformMatrix4fv(
-            self.ptrs["V2W"],
-            1,
-            GL_FALSE,
-            glm.value_ptr(view_i),
-        )
-        glUniform3f(self.ptrs["eye"], *self.state.camera_origin)
-        glUniform1f(self.ptrs["step"], self.state.ray_step)
-        glUniform1f(self.ptrs["alpha"], self.state.ray_alpha)
-        glUniform1f(self.ptrs["pix_min"], self.state.voxel_min)
-        glUniform1f(self.ptrs["pix_max"], self.state.voxel_max)
-        bbox = self.state.cube_bounding()
-        glUniform3fv(self.ptrs["cube_a"], 1, GL_FALSE, glm.value_ptr(bbox[0]))
-        glUniform3fv(self.ptrs["cube_b"], 1, GL_FALSE, glm.value_ptr(bbox[1]))
-        # only need load once
-        glUniformMatrix4fv(
-            self.ptrs["W2M"], 1, GL_FALSE, glm.value_ptr(self.state.mat_W2M())
-        )
+        with Program(self.shader_plane):
+            W, H = self.state.viewport[2], self.state.viewport[3]
+            W, H = W * self.state.plane_scale, H * self.state.plane_scale
+            glUniform2f(self.ptrs_plane["screen"], W, H)
+            glUniform3f(self.ptrs_plane["focus"], *self.state.plane_focus)
+            glUniform3f(self.ptrs_plane["slice"], *self.state.plane_slice)
+            glUniform3f(self.ptrs_plane["range"], *self.state.img_region)
+            glUniform2f(
+                self.ptrs_plane["hu_range"], self.state.voxel_min, self.state.voxel_max
+            )
+            # IMG,SEG
+
+        with Program(self.shader_3d):
+            glUniform2f(
+                self.ptrs_3d["screen"],
+                self.state.viewport[2],
+                self.state.viewport[3],
+            )
+            # glUniform1d()
+            glUniform1f(self.ptrs_3d["fov"], self.state.view_radians)
+            glUniform3f(self.ptrs_3d["eye"], *self.state.camera_origin)
+            view_i = self.state.mat_V2W()
+            glUniformMatrix4fv(
+                self.ptrs_3d["V2W"],
+                1,
+                GL_FALSE,
+                glm.value_ptr(view_i),
+            )
+            glUniform1f(self.ptrs_3d["step"], self.state.ray_step)
+            glUniform1f(self.ptrs_3d["alpha"], self.state.ray_alpha)
+            glUniform1f(self.ptrs_3d["vox_min"], self.state.voxel_min)
+            glUniform1f(self.ptrs_3d["vox_max"], self.state.voxel_max)
+            bbox = self.state.cube_bounding()
+            glUniform3fv(self.ptrs_3d["cube_a"], 1, glm.value_ptr(bbox[0]))
+            glUniform3fv(self.ptrs_3d["cube_b"], 1, glm.value_ptr(bbox[1]))
+            # only need load once
+            glUniformMatrix4fv(
+                self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(self.state.mat_W2M())
+            )
 
     def update_texture(self):
         if self.state.need_reload_file():
             print("Reload texture")
-            img, spacing = get_img(self.state.input_file)
+            img, spacing, directions = get_img(self.state.input_file)
             seg = get_seg(self.state.input_file)
-            print(img.shape, spacing)
+            print(img.shape, spacing, directions)
             self.state.update_img_meta(spacing, img.shape, "CT")
             self.create_texture(img, seg)
             self.state.update_file_history()
@@ -186,14 +202,32 @@ class Render(object):
         self.update_texture()
         self.update_shader()
 
+    def draw_panel(self, plane_type):
+        if plane_type == PLANE_3D:
+            shader = self.shader_3d
+        else:
+            shader = self.shader_plane
+        with VAO(self.vao):
+            with Program(shader):
+                with Texture(self.texture_img, GL_TEXTURE_3D):
+                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+
     def do_render(self):
         glClear(GL_COLOR_BUFFER_BIT)
-        with Program(self.shader):
-            self.check_and_update()
-            if self.state.file_opened:
-                with VAO(self.vao):
-                    with Texture(self.texture_img, GL_TEXTURE_3D):
-                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+        self.check_and_update()
+        if not self.state.file_opened:
+            return
+        if self.state.view_type == PlANE_ALL:
+            for i, tp in enumerate(
+                [PLANE_CORONAL, PLANE_3D, PLANE_CROSS, PLANE_SAGITTAL]
+            ):
+                w, h = self.state.viewport[2] // 2, self.state.viewport[3] // 2
+                a, b = i % 2, i // 2
+                glViewport(a * w, b * h, w, h)
+                self.draw_panel(tp)
+        else:
+            glViewport(0, 0, self.state.viewport[2], self.state.viewport[3])
+            self.draw_panel(self.state.view_type)
 
     def render_loop(self):
         glfw.poll_events()
@@ -204,6 +238,9 @@ class Render(object):
     def run(self):
         self.prepare_glfw()
         self.prepare_opengl()
+        if DEBUG:
+            self.state.input_file = "/Users/yeruo/WorkSpace/3月颅脑CT及标记数据数据/3月颅脑导数据/标记数据/img/1.25mm/20230327007282.nii.gz"
+            self.update_texture()
         while glfw.window_should_close(self.window) == 0:
             self.render_loop()
         glfw.terminate()

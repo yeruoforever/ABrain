@@ -19,13 +19,11 @@ def load_shader_from_text(
     fragment_source: Optional[str] = None,
 ):
     if vertex_source is None:
-        path = os.path.join(os.path.dirname(__file__), "shader", target, "vertex.vert")
+        path = os.path.join(os.path.dirname(__file__), "shader", f"{target}.vert")
         vertex_source = read_from_text(path)
 
     if fragment_source is None:
-        path = os.path.join(
-            os.path.dirname(__file__), "shader", target, "fragment.frag"
-        )
+        path = os.path.join(os.path.dirname(__file__), "shader", f"{target}.frag")
         fragment_source = read_from_text(path)
 
     program = shaders.compileProgram(

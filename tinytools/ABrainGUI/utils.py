@@ -49,6 +49,7 @@ class Program(object):
 
     def __enter__(self):
         glUseProgram(self.prog)
+        print(self.prog)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

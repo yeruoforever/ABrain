@@ -6,15 +6,28 @@ from glm import *
 from glm import translate, scale
 import numpy as np
 
-__all__ = ["Status"]
+__all__ = [
+    "Status",
+    "PlANE_ALL",
+    "PLANE_CROSS",
+    "PLANE_CORONAL",
+    "PLANE_SAGITTAL",
+    "PLANE_3D",
+]
 
 MAX_HISTORY_LENGTH = 6
+PlANE_ALL = 0
+PLANE_CROSS = 1
+PLANE_CORONAL = 2
+PLANE_SAGITTAL = 3
+PLANE_3D = 4
 
 
 class Status(object):
     def __init__(self) -> None:
         self.screen_size = [1280, 720]
-        self.viewport = [0, 0, 950, 720]
+        self.viewport = [0, 0, 995, 720]
+        self.view_type = PlANE_ALL
 
         self.mouse_pos = [0, 0]
         self.mouse_state = [False, False]
@@ -23,8 +36,8 @@ class Status(object):
 
         self.camera_origin = [4.0, 4.0, 4.0]
         self.camera_target = [0.0, 0.0, 0.0]
-        self.view_far = 100.0
-        self.view_near = 0.1
+        # self.view_far = 100.0
+        # self.view_near = 0.1
         self.view_radians = 3.141592 / 4.0
 
         self.ray_step = 0.001
@@ -48,11 +61,15 @@ class Status(object):
         self.img_region = [0.0, 0.0, 0.0]
         self.img_body_range = "Head (Brain)"
 
+        self.plane_focus = [0.0, 0.0, 0.0]
+        self.plane_scale = 0.85
+        self.plane_slice = [0.0, 0.0, 0.0]
+
         self.patient_id = "CT20220222"
-        self.patient_name = "XUKUN CAI"
+        self.patient_name = "蔡徐坤"
         self.patient_age = "38"
-        self.patient_gender = "Male"
-        self.patient_weight = "75"
+        self.patient_gender = "女"
+        self.patient_weight = "75 kg"
 
         self.frame_timestamp = time.time()
 
@@ -108,13 +125,16 @@ class Status(object):
             vec3(0.0, 1.0, 0.0),
         )
 
-    def projection(self):
-        return perspective(
-            self.view_radians,
-            self.viewport[2] / self.viewport[3],
-            self.view_near,
-            self.view_far,
-        )
+    # def projection(self):
+    #     return perspective(
+    #         self.view_radians,
+    #         self.viewport[2] / self.viewport[3],
+    #         self.view_near,
+    #         self.view_far,
+    #     )
+
+    def mat_W2V(self):
+        return self.camera_lookat()
 
     def mat_V2W(self):
         return inverse(self.camera_lookat())
@@ -126,10 +146,9 @@ class Status(object):
 
     def mat_M2W(self):
         m = mat4(1)
-        aspect = self.img_aspact()
         t = translate(m, vec3(-0.5, -0.5, -0.5))
         s = scale(m, vec3(2, 2, 2))
-        ss = scale(m, vec3(*aspect))
+        ss = scale(m, vec3(*self.img_aspact()))
         return ss * s * t
 
     def mat_W2M(self):
