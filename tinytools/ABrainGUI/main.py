@@ -12,7 +12,7 @@ from status import *
 from utils import *
 from neuron import *
 
-DEBUG = True
+DEBUG = False
 
 
 class Render(object):
@@ -205,13 +205,19 @@ class Render(object):
     def draw_panel(self, plane_type):
         if plane_type == PLANE_3D:
             shader = self.shader_3d
+            with VAO(self.vao):
+                with Program(shader):
+                    with Texture(self.texture_img, GL_TEXTURE_3D):
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
         else:
             shader = self.shader_plane
-        with VAO(self.vao):
-            with Program(shader):
-                with Texture(self.texture_img, GL_TEXTURE_3D):
-                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+            with VAO(self.vao):
+                with Program(shader):
+                    glUniform1i(self.ptrs_plane["plane"], plane_type)
+                    with Texture(self.texture_img, GL_TEXTURE_3D):
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
+        
     def do_render(self):
         glClear(GL_COLOR_BUFFER_BIT)
         self.check_and_update()

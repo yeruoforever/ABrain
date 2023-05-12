@@ -165,13 +165,19 @@ class GUI(object):
 
             for i, axis in enumerate(["右", "前", "上"]):
                 changed, self.state.plane_slice[i] = imgui.slider_float(
-                    f"切片位置（{axis})",
+                    f"切片位置({axis})",
                     self.state.plane_slice[i],
                     min_value=-self.state.img_region[i] / 2,
                     max_value=self.state.img_region[i] / 2,
                     format="%.2f",
                 )
                 has_changed = has_changed or changed
+            changed, self.state.plane_scale = imgui.slider_float(
+                "缩放",
+                self.state.plane_scale,
+                0.0,
+                1.5,
+            )
 
     def voxel_setting(self):
         with imgui.begin("voxel"):

@@ -43,9 +43,9 @@ class Status(object):
         self.ray_step = 0.001
         self.ray_alpha = 0.18
 
-        self.voxel_min = 0
-        self.voxel_max = 100
-        self.voxel_window = 100
+        self.voxel_min = 0.0
+        self.voxel_max = 100.0
+        self.voxel_window = 100.0
 
         self.color_background = [0.0, 0.0, 0.0, 0.0]
         self.color_target_1 = [1.0, 0.0, 0.0, 1.0]
