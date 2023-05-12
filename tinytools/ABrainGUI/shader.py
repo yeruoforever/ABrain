@@ -8,7 +8,7 @@ __all__ = ["load_shader_from_text", "shader_ptrs"]
 
 
 def read_from_text(path: str):
-    with open(path, "r") as io:
+    with open(path, "r",encoding="UTF8") as io:
         content = io.read()
     return content
 

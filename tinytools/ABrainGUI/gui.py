@@ -1,3 +1,4 @@
+import os
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 import glfw
@@ -34,7 +35,7 @@ class GUI(object):
         font_scaling_factor = max(float(fb_w) / win_w, float(fb_h) / win_h)
         self.io = imgui.get_io()
         self.font_characters = self.io.fonts.add_font_from_file_ttf(
-            "/Users/yeruo/WorkSpace/Projects/ABrain/tinytools/ABrainGUI/backup/fonts/楷体_GB2312.ttf",
+        os.path.join(os.path.dirname(__file__),"fonts","楷体_GB2312.ttf"),
             13 * font_scaling_factor,
             None,
             self.io.fonts.get_glyph_ranges_chinese_full(),
@@ -197,6 +198,7 @@ class GUI(object):
             has_changed = False
 
     def test_plane_coord(self, pos_screen, screen, focus, slice, range):
+        range = range+glm.vec3(0.000001)
         cro = (2 * focus.xy + screen * pos_screen) / (2 * range.xy) + 0.5
         cro = glm.vec3(cro.x, cro.y, slice.z / range.z + 0.5)
         con = (2 * focus.xz + screen * pos_screen) / (2 * range.xz) + 0.5
