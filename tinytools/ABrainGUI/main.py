@@ -12,7 +12,7 @@ from status import *
 from utils import *
 from neuron import *
 
-DEBUG = False
+DEBUG = True
 
 
 class Render(object):
@@ -217,7 +217,6 @@ class Render(object):
                     with Texture(self.texture_img, GL_TEXTURE_3D):
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
-        
     def do_render(self):
         glClear(GL_COLOR_BUFFER_BIT)
         self.check_and_update()

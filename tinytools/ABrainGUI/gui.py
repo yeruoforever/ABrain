@@ -30,12 +30,13 @@ class GUI(object):
         glfw.set_mouse_button_callback(window, self.mouse_viewport_click)
         glfw.set_cursor_pos_callback(window, self.mouse_viewport_move)
         glfw.set_framebuffer_size_callback(window, self.resize_window)
+        glfw.set_scroll_callback(window, self.mouse_scroll)
         win_w, win_h = glfw.get_window_size(window)
         fb_w, fb_h = glfw.get_framebuffer_size(window)
         font_scaling_factor = max(float(fb_w) / win_w, float(fb_h) / win_h)
         self.io = imgui.get_io()
         self.font_characters = self.io.fonts.add_font_from_file_ttf(
-        os.path.join(os.path.dirname(__file__),"fonts","楷体_GB2312.ttf"),
+            os.path.join(os.path.dirname(__file__), "fonts", "楷体_GB2312.ttf"),
             13 * font_scaling_factor,
             None,
             self.io.fonts.get_glyph_ranges_chinese_full(),
@@ -58,19 +59,68 @@ class GUI(object):
         self.state.viewport[2] = width - MSG_BOX
         self.state.viewport[3] = height
 
+    def mouse_location(self):
+        if self.state.view_type == PlANE_ALL:
+            x, y = self.state.mouse_pos
+            y = self.state.viewport[3] - y
+            W, H = self.state.viewport[2], self.state.viewport[3]
+            hW, hH = W // 2, H // 2
+            if x < hW:
+                if y < hH:
+                    return PLANE_CORONAL
+                elif y < H:
+                    return PLANE_CROSS
+                return PLANE_UNKNOWN
+            elif x < W:
+                if y < hH:
+                    return PLANE_3D
+                elif y < H:
+                    return PLANE_SAGITTAL
+                return PLANE_UNKNOWN
+        else:
+            return self.state.view_type
+
     def mouse_viewport_click(self, window, button, action, mode):
-        if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
-            self.mouse_pos_last = [self.state.mouse_pos[0], self.state.mouse_pos[1]]
-        # elif button==glfw.mo
+        if button == glfw.MOUSE_BUTTON_LEFT:
+            if action == glfw.PRESS:
+                self.state.mouse_activate = self.mouse_location()
+                self.mouse_pos_last = [self.state.mouse_pos[0], self.state.mouse_pos[1]]
+                self.state.mouse_state[0] = True
+            elif action == glfw.RELEASE:
+                self.state.mouse_state[0] = False
+        if button == glfw.MOUSE_BUTTON_RIGHT:
+            if action == glfw.PRESS:
+                self.state.mouse_state[1] = True
+            elif action == glfw.RELEASE:
+                self.state.mouse_state[1] = False
 
     def mouse_viewport_move(self, window, xpos, ypos):
-        if self.mouse_pos_last:
-            pass
+        if self.state.view_type == PlANE_ALL:
+            scale = 2
+        else:
+            scale = 1
+        if self.state.mouse_state[0]:
+            delta_x = xpos - self.state.mouse_pos[0]
+            delta_y = ypos - self.state.mouse_pos[1]
+            delta_x *= self.state.plane_scale * scale
+            delta_y *= self.state.plane_scale * scale
+            if self.state.mouse_activate == PLANE_CROSS:
+                self.state.plane_focus[0] -= delta_x
+                self.state.plane_focus[1] += delta_y
+            elif self.state.mouse_activate == PLANE_CORONAL:
+                self.state.plane_focus[0] -= delta_x
+                self.state.plane_focus[2] += delta_y
+            elif self.state.mouse_activate == PLANE_SAGITTAL:
+                self.state.plane_focus[1] -= delta_x
+                self.state.plane_focus[2] += delta_y
+
         self.state.mouse_pos[0] = xpos
         self.state.mouse_pos[1] = ypos
 
     def mouse_scroll(self, window, xoffset, yoffset):
-        pass
+        self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
+        self.state.plane_scale = min(self.state.plane_scale, 3)
+        self.state.plane_scale = max(self.state.plane_scale, 0.01)
 
     def main_menu_bar(self):
         changed = False
@@ -204,7 +254,7 @@ class GUI(object):
             has_changed = False
 
     def test_plane_coord(self, pos_screen, screen, focus, slice, range):
-        range = range+glm.vec3(0.000001)
+        range = range + glm.vec3(0.000001)
         cro = (2 * focus.xy + screen * pos_screen) / (2 * range.xy) + 0.5
         cro = glm.vec3(cro.x, cro.y, slice.z / range.z + 0.5)
         con = (2 * focus.xz + screen * pos_screen) / (2 * range.xz) + 0.5
@@ -220,9 +270,9 @@ class GUI(object):
             W, H = self.state.viewport[2], self.state.viewport[3]
             ndc = [
                 (self.state.mouse_pos[0] / W) * 2 - 1,
-                (self.state.mouse_pos[1] / H) * 2 - 1,
+                1 - (self.state.mouse_pos[1] / H) * 2,
             ]
-            imgui.text(f"gl_Position:  {ndc}")
+            imgui.text(f"标准屏幕坐标:  {ndc}")
             self.test_plane_coord(
                 glm.vec2(*ndc),
                 glm.vec2(W * self.state.plane_scale, H * self.state.plane_scale),
@@ -240,53 +290,52 @@ class GUI(object):
             aspect = W / H
             ndc = [
                 (self.state.mouse_pos[0] / W) * 2 - 1,
-                (self.state.mouse_pos[1] / H) * 2 - 1,
+                1 - (self.state.mouse_pos[1] / H) * 2,
             ]
-            imgui.text(f"gl_Position:  {ndc}")
+            imgui.text(f"标准屏幕坐标:  {ndc}")
             X = aspect * ndc[0]
             Y = ndc[1]
             dis = glm.tan(self.state.view_radians / 2)
-            ray = -Vi * glm.vec4(X, Y, -dis, 1.0)
+            ray = -Vi * glm.vec4(X, Y, -1 / dis, 1.0)
             ray = glm.normalize(ray.xyz)
-            imgui.text(f"Screen Size:  {self.state.screen_size}")
-            imgui.text(f"Viewport:  {self.state.viewport}")
-            imgui.text(f"Aspect:  {aspect}")
-            imgui.text(f"Plane:  FOV({self.state.view_radians*180/np.pi})")
+            imgui.text(f"屏幕大小: {self.state.screen_size}")
+            imgui.text(f"视口大小:  {self.state.viewport}")
+            imgui.text(f"纵横比:  {aspect}")
+            imgui.text(f"视野宽度:  {self.state.view_radians*180/np.pi}")
             # imgui.text(f"Plane:  Near({self.state.view_near})")
             # imgui.text(f"Plane:  Far({self.state.view_far})")
-            imgui.text(f"Camera pos:  {self.state.camera_origin}")
-            imgui.text(f"Camera in View:  {V*glm.vec3(*self.state.camera_origin)}")
-            imgui.text(f"Origin in View:  {V*glm.vec3(0)}")
-            imgui.text("Bound box:  ")
-            imgui.text(f"World to View:\n{V}")
-            imgui.text(f"View to World:\n{Vi}")
-            imgui.text(f"ray direction:  {ray}")
+            imgui.text(f"相机位置:  {self.state.camera_origin}")
+            imgui.text(f"相机视野坐标:  {V*glm.vec3(*self.state.camera_origin)}")
+            imgui.text(f"世界原点视野坐标:  {V*glm.vec3(0)}")
+            imgui.text(f"转换矩阵（世界到视野）:\n{V}")
+            imgui.text(f"转换矩阵（视野到世界）:\n{Vi}")
+            imgui.text(f"光线方向: {ray}")
         with imgui.begin("fragment"):
-            imgui.text(f"Ray Step:  {self.state.ray_step}")
-            imgui.text(f"Ray alpha:  {self.state.ray_alpha}")
+            imgui.text(f"光线步长:  {self.state.ray_step}")
+            imgui.text(f"光线不透明度:  {self.state.ray_alpha}")
             pix_min, pix_max = self.state.voxel_min, self.state.voxel_max
             pix_window = pix_max - pix_min
-            imgui.text(f"Voxel Value Range:  {pix_min,pix_max}")
-            imgui.text(f"Voxel value Window:  {pix_window}")
-            imgui.text(f"Model to World\n{self.state.mat_M2W()}")
-            imgui.text(f"World to Model\n{self.state.mat_W2M()}")
+            imgui.text(f"体素亮度范围:  {pix_min,pix_max}")
+            imgui.text(f"体素亮度窗口大小:  {pix_window}")
+            imgui.text(f"转换矩阵（模型到世界）\n{self.state.mat_M2W()}")
+            imgui.text(f"转换矩阵（世界到模型）\n{self.state.mat_W2M()}")
             bbox = self.state.cube_bounding()
             eye = glm.vec3(*self.state.camera_origin)
-            imgui.text(f"Image BBox a:  {bbox[0]}")
-            imgui.text(f"Image BBox b:  {bbox[1]}")
+            imgui.text(f"图像边界1:  {bbox[0]}")
+            imgui.text(f"图像边界2:  {bbox[1]}")
             slab = is_insersect(eye, ray, bbox[0], bbox[1])
             W2M = self.state.mat_W2M()
-            imgui.text(f"Image BBox tex-a: {W2M*bbox[0]}")
-            imgui.text(f"Image BBox tex-b: {W2M*bbox[1]}")
+            imgui.text(f"纹理边界1: {W2M*bbox[0]}")
+            imgui.text(f"纹理边界2: {W2M*bbox[1]}")
             flag, t_min, t_max = slab
             step_min = t_min * ray
             step_max = t_max * ray
-            imgui.text(f"Ray range:  {t_max-t_min}")
-            imgui.text(f"Slab result:  {flag}")
-            imgui.text(f"Slab result:  {step_min}")
-            imgui.text(f"Slab result:  {step_max}")
-            imgui.text(f"Start Point:  {eye+step_min}")
-            imgui.text(f"End   Point:  {eye+step_max}")
+            imgui.text(f"光线起止:  {t_max-t_min}")
+            imgui.text(f"光线与模型相交:  {flag}")
+            imgui.text(f"光线起点t:  {t_min}")
+            imgui.text(f"光线终点t:  {t_max}")
+            imgui.text(f"光线起点坐标:  {eye+step_min}")
+            imgui.text(f"光线终点坐标:  {eye+step_max}")
 
     def draw_and_update_status(self):
         with imgui.font(self.font_characters):
@@ -296,6 +345,7 @@ class GUI(object):
             self.image_color_setting()
             self.voxel_setting()
             self.debug_plane()
+            self.debug_3d()
 
 
 def print_mat4(mat):

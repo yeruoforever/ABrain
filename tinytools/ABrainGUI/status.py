@@ -13,6 +13,7 @@ __all__ = [
     "PLANE_CORONAL",
     "PLANE_SAGITTAL",
     "PLANE_3D",
+    "PLANE_UNKNOWN",
 ]
 
 MAX_HISTORY_LENGTH = 6
@@ -21,6 +22,7 @@ PLANE_CROSS = 1
 PLANE_CORONAL = 2
 PLANE_SAGITTAL = 3
 PLANE_3D = 4
+PLANE_UNKNOWN = -1
 
 
 class Status(object):
@@ -31,6 +33,8 @@ class Status(object):
 
         self.mouse_pos = [0, 0]
         self.mouse_state = [False, False]
+        self.mouse_activate = PlANE_ALL
+        self.mouse_scroll_speed = 0.05
 
         self.key_status = [False] * 1024
 
@@ -62,7 +66,7 @@ class Status(object):
         self.img_body_range = "Head (Brain)"
 
         self.plane_focus = [0.0, 0.0, 0.0]
-        self.plane_scale = 0.85
+        self.plane_scale = 0.30
         self.plane_slice = [0.0, 0.0, 0.0]
 
         self.patient_id = "CT20220222"
