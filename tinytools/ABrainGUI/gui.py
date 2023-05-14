@@ -20,17 +20,22 @@ import glm
 MSG_BOX = 285
 
 
+def clamp(x, mi, mx):
+    return min(max(mi, x), mx)
+
+
 class GUI(object):
     def __init__(self, window, status: Status) -> None:
         self.window = window
         imgui.create_context()
         self.impl = GlfwRenderer(window)
         self.state = status
-        self.mouse_pos_last = None
+        self.mouse_pos_last = [0.0, 0.0]
         glfw.set_mouse_button_callback(window, self.mouse_viewport_click)
         glfw.set_cursor_pos_callback(window, self.mouse_viewport_move)
         glfw.set_framebuffer_size_callback(window, self.resize_window)
         glfw.set_scroll_callback(window, self.mouse_scroll)
+        glfw.set_key_callback(window, self.key_tracking)
         win_w, win_h = glfw.get_window_size(window)
         fb_w, fb_h = glfw.get_framebuffer_size(window)
         font_scaling_factor = max(float(fb_w) / win_w, float(fb_h) / win_h)
@@ -59,11 +64,23 @@ class GUI(object):
         self.state.viewport[2] = width - MSG_BOX
         self.state.viewport[3] = height
 
+    def key_tracking(self, window, key, scancode, action, mods):
+        if action == glfw.PRESS:
+            self.state.key_status[key] = True
+        elif action == glfw.RELEASE:
+            self.state.key_status[key] = False
+        if (
+            self.state.key_status[glfw.KEY_LEFT_CONTROL]
+            or self.state.key_status[glfw.KEY_RIGHT_CONTROL]
+        ):
+            self.mouse_pos_last[0] = self.state.mouse_pos[0]
+            self.mouse_pos_last[1] = self.state.mouse_pos[1]
+
     def mouse_location(self):
+        x, y = self.state.mouse_pos
+        y = self.state.viewport[3] - y
+        W, H = self.state.viewport[2], self.state.viewport[3]
         if self.state.view_type == PlANE_ALL:
-            x, y = self.state.mouse_pos
-            y = self.state.viewport[3] - y
-            W, H = self.state.viewport[2], self.state.viewport[3]
             hW, hH = W // 2, H // 2
             if x < hW:
                 if y < hH:
@@ -78,12 +95,14 @@ class GUI(object):
                     return PLANE_SAGITTAL
                 return PLANE_UNKNOWN
         else:
-            return self.state.view_type
+            if 0 < x and x < W and 0 < y and y < H:
+                return self.state.view_type
+            else:
+                return PLANE_UNKNOWN
 
     def mouse_viewport_click(self, window, button, action, mode):
         if button == glfw.MOUSE_BUTTON_LEFT:
             if action == glfw.PRESS:
-                self.state.mouse_activate = self.mouse_location()
                 self.mouse_pos_last = [self.state.mouse_pos[0], self.state.mouse_pos[1]]
                 self.state.mouse_state[0] = True
             elif action == glfw.RELEASE:
@@ -95,13 +114,17 @@ class GUI(object):
                 self.state.mouse_state[1] = False
 
     def mouse_viewport_move(self, window, xpos, ypos):
+        self.state.mouse_pos[0] = xpos
+        self.state.mouse_pos[1] = ypos
+        self.state.mouse_activate = self.mouse_location()
+
         if self.state.view_type == PlANE_ALL:
             scale = 2
         else:
             scale = 1
         if self.state.mouse_state[0]:
-            delta_x = xpos - self.state.mouse_pos[0]
-            delta_y = ypos - self.state.mouse_pos[1]
+            delta_x = xpos - self.mouse_pos_last[0]
+            delta_y = ypos - self.mouse_pos_last[1]
             delta_x *= self.state.plane_scale * scale
             delta_y *= self.state.plane_scale * scale
             if self.state.mouse_activate == PLANE_CROSS:
@@ -113,14 +136,30 @@ class GUI(object):
             elif self.state.mouse_activate == PLANE_SAGITTAL:
                 self.state.plane_focus[1] -= delta_x
                 self.state.plane_focus[2] += delta_y
-
-        self.state.mouse_pos[0] = xpos
-        self.state.mouse_pos[1] = ypos
+            self.mouse_pos_last[0] = xpos
+            self.mouse_pos_last[1] = ypos
 
     def mouse_scroll(self, window, xoffset, yoffset):
-        self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
-        self.state.plane_scale = min(self.state.plane_scale, 3)
-        self.state.plane_scale = max(self.state.plane_scale, 0.01)
+        if (
+            self.state.key_status[glfw.KEY_LEFT_CONTROL]
+            or self.state.key_status[glfw.KEY_RIGHT_CONTROL]
+        ):
+            self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
+            self.state.plane_scale = min(self.state.plane_scale, 3)
+            self.state.plane_scale = max(self.state.plane_scale, 0.01)
+        else:
+            if self.state.mouse_activate == PLANE_CROSS:
+                delta = yoffset * 0.3 + self.state.plane_slice[2]
+                bound = self.state.img_region[2] / 2
+                self.state.plane_slice[2] = clamp(delta, -bound, bound)
+            elif self.state.mouse_activate == PLANE_CORONAL:
+                delta = yoffset * 0.3 + self.state.plane_slice[1]
+                bound = self.state.img_region[1] / 2
+                self.state.plane_slice[1] = clamp(delta, -bound, bound)
+            elif self.state.mouse_activate == PLANE_SAGITTAL:
+                delta = yoffset * 0.3 + self.state.plane_slice[0]
+                bound = self.state.img_region[0] / 2
+                self.state.plane_slice[0] = clamp(delta, -bound, bound)
 
     def main_menu_bar(self):
         changed = False
@@ -230,7 +269,7 @@ class GUI(object):
             )
 
     def voxel_setting(self):
-        with imgui.begin("voxel"):
+        with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
             has_changed = False
             changed, values = imgui.slider_float2(
                 "体素值域",
@@ -340,10 +379,25 @@ class GUI(object):
     def draw_and_update_status(self):
         with imgui.font(self.font_characters):
             self.main_menu_bar()
+            imgui.set_next_window_size(MSG_BOX, 150)
+            imgui.set_next_window_position(
+                self.state.viewport[2],
+                20,
+            )
             self.patient_message()
+            imgui.set_next_window_size(MSG_BOX, 245)
+            imgui.set_next_window_position(
+                self.state.viewport[2],
+                20 + 150,
+            )
             self.camera_control()
-            self.image_color_setting()
+            imgui.set_next_window_size(MSG_BOX, 40)
+            imgui.set_next_window_position(
+                self.state.viewport[2],
+                20 + 150 + 245,
+            )
             self.voxel_setting()
+            self.image_color_setting()
             self.debug_plane()
             self.debug_3d()
 
