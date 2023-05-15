@@ -267,7 +267,7 @@ if not args.test:
     n_val = len(ds_val)
     logging.info(f"Using `CTCSF`, {n_train} train samples, {n_val} for validation.")
 
-    loader_train = data.DataLoader(ds_train, batch_size, num_workers=64)
+    loader_train = data.DataLoader(ds_train, batch_size, num_workers=4)
     loader_val = data.DataLoader(ds_val, batch_size, num_workers=1)
 
     logging.info(f"Start training from round {start+1}, total {epochs} rounds.")
