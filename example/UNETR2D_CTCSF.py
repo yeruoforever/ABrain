@@ -9,7 +9,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 import torch.utils.data as data
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp.autocast_mode import autocast
+from torch.cuda.amp.grad_scaler import GradScaler
 from torchio import DATA, Subject, LabelMap, ScalarImage
 import torchio as tio
 import pandas as pds
@@ -17,7 +18,7 @@ import pandas as pds
 import monai.networks.nets as nets
 
 from ABrain.modelzoo.losses import DiceLoss3D
-from ABrain.dataset import OurDataset, Subset, CTCSF
+from ABrain.dataset import OurDataset, Subset, CTCSF, DatasetWapper
 from ABrain.transforms import ZNormalization, HistogramStandardization, ToCanonical
 from ABrain.transforms import Pad, Crop
 from ABrain.transforms import (
@@ -88,33 +89,36 @@ loss_func = nn.CrossEntropyLoss(label_smoothing=args.label_smooth)
 
 preprocess = ToCanonical()
 normalization = ZNormalization()
-padding = Pad([46, 46, 46], padding_mode="reflect")
+# padding = Pad([46, 46, 46], padding_mode="reflect")
 augmentations = Compose(
     [
-        RandomFlip(axes=("lr",), flip_probability=0.5),
+        RandomFlip(axes=(0, 1, 2), flip_probability=0.5),
         RandomAffine(
             scales=0.2, degrees=25, center="image", default_pad_value="minimum"
         ),
-        # RandomElasticDeformation(),
-        RandomGhosting(),
+        RandomElasticDeformation(),
+        # RandomGhosting(),
         RandomGamma(),
     ]
 )
 
 
 logging.info(f"Using `3D U-Net` as the base model.")
-model = nets.unetr.UNETR(in_chs=1, out_channels=len(label_names), spatial_dims=2)
+model = nets.unetr.UNETR(
+    in_channels=1, out_channels=len(label_names), img_size=(512, 512), spatial_dims=2
+)
 
 logging.info(f"[Compile]: mode --> {args.compile_mode}")
 model = torch.compile(model, mode=args.compile_mode)
 
 
 class CT2DDataset(Dataset):
-    def __init__(self, ds: OurDataset, index_rand) -> None:
+    def __init__(self, ds: OurDataset, index_rand, transforms=None) -> None:
         super().__init__()
         self.ds = ds
         self.index_rand = index_rand
         self.n = len(self.ds.sids)
+        self.transfroms = transforms
 
     def __getitem__(self, index) -> Any:
         rid = self.index_rand[index]
@@ -122,14 +126,51 @@ class CT2DDataset(Dataset):
         img = self.ds.img_file(sid)
         seg = self.ds.seg_file(sid)
         subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
-        c, w, h, d = subject.shape
-        index = rid % d
-        slice_img = subject["img"][DATA][:, :, :, index]
-        slice_seg = subject["seg"][DATA][:, :, :, index]
-        return dict(name=sid, img=slice_img, seg=slice_seg)
+        if self.transfroms:
+            subject = self.transfroms(subject)
+        _, _, _, d = subject.shape
+        indexd = rid % d
+        slice_img = subject["img"][DATA][:, :, :, indexd]
+        slice_seg = subject["seg"][DATA][:, :, :, indexd]
+        return dict(img=slice_img, seg=slice_seg)
 
     def __len__(self):
         return len(self.index_rand)
+
+
+class CT2Test(Dataset):
+    def __init__(self, ds: OurDataset, transforms) -> None:
+        super().__init__()
+        self.subject_id = []
+        self.slice_id = []
+        self.ds = ds
+        self.transforms = transforms
+        for i, sid in enumerate(ds.sids):
+            img = ds.img_file(sid)
+            nii = ScalarImage(img)
+            _, _, _, d = nii.shape
+            self.subject_id.extend([i] * d)
+            self.slice_id.extend(range(d))
+        self.current = ""
+
+    def __getitem__(self, index):
+        subject_id = self.subject_id[index]
+        sid = self.ds.sids[subject_id]
+        if self.current != sid:
+            img = self.ds.img_file(sid)
+            seg = self.ds.seg_file(sid)
+            subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
+            if self.transforms:
+                subject = self.transforms(subject)
+            self.subject = subject
+            self.current = sid
+        slice_id = self.slice_id[index]
+        img = self.subject["img"][DATA]
+        seg = self.subject["seg"][DATA]
+        return dict(img=img[:, :, :, slice_id], seg=seg[:, :, :, slice_id])
+
+    def __len__(self):
+        return len(self.slice_id)
 
 
 class CSF_Sniffer(Sniffer):
@@ -144,15 +185,7 @@ class CSF_Sniffer(Sniffer):
         return current["CSF"] > history["CSF"]
 
 
-ds = CTCSF()
-ids_train = list(range(10))
-ids_val = list(range(80, 96))
-ds_train = Subset(ds, ids_train)
-ds_val = Subset(ds, ids_val)
-rand_ids = torch.randint(123456789, (10000,))
-ds = CT2DDataset(ds_train, rand_ids)
-sniffer = CSF_Sniffer(label_names)
-watchdog = WatchDog(sniffer)
+watchdog = WatchDog(CSF_Sniffer(label_names))
 
 if resume or args.test:
     if args.best_model:
@@ -174,7 +207,9 @@ if resume or args.test:
         optimizer = optim.Adam(model.parameters(), lr=lr)
         optimizer.load_state_dict(state_optimizer)
         watchdog.load_state(state_train["watchdog"])
-
+    else:
+        start = 0
+        optimizer = None
     state_model = None
     state_train = None
     state_optimizer = None
@@ -190,11 +225,9 @@ scaler = GradScaler()
 
 
 def parse_data(package, device):
-    img = package["img"][DATA]
-    seg = package["seg"][DATA]
-    target = seg[:, :, 46:-46, 46:-46, 46:-46]
-    target = target.squeeze(dim=1).long()
-    target = torch.where(target >= 4, 0, target)
+    img = package["img"]
+    seg = package["seg"]
+    target = seg.long()
     return img.to(device), target.to(device)
 
 
@@ -218,33 +251,24 @@ def save_state(location, epoch, model, optimizer, **kwargs):
 if not args.test:
     # prepare train and val dataset
 
-    trans_train = Compose([preprocess, padding, augmentations, normalization])
+    trans_train = Compose([preprocess, augmentations, normalization])
     trans_val = Compose([preprocess, normalization])
 
     ids_train = list(range(10))
     ids_val = list(range(80, 96))
-    dataset = CTCSF("5.0mm")
-    ds_train = Subset(dataset, ids_train)
-    ds_val = Subset(dataset, ids_val)
-    ds_train = DatasetWapper(ds_train)
-    ds_val = DatasetWapper(ds_val)
-    ds_train = TioDataSet(ds_train, trans_train)
-    ds_val = TioDataSet(ds_val, trans_val)
+    rand_ids = torch.randint(123456789, (10000,))
+    ds = CTCSF(resolution="5.0mm")
+    ds_train = Subset(ds, ids_train)
+    ds_train = CT2DDataset(ds_train, rand_ids, trans_train)
+    ds_val = Subset(ds, ids_val)
+    ds_val = CT2Test(ds_val, trans_val)
 
     n_train = len(ds_train)
     n_val = len(ds_val)
     logging.info(f"Using `CTCSF`, {n_train} train samples, {n_val} for validation.")
 
-    # train_sampler = tio.data.LabelSampler(
-    #     patch_size, label_probabilities={0: 1, 1: 5, 2: 2, 3: 2})
-    train_sampler = tio.data.UniformSampler(patch_size)
-    val_sampler = tio.data.LabelSampler(patch_size)
-
-    queue_train = tio.Queue(ds_train, 128, 27, train_sampler, num_workers=64)
-    queue_val = tio.Queue(ds_val, 128, 27, val_sampler, num_workers=8)
-
-    loader_train = data.DataLoader(queue_train, batch_size)
-    loader_val = data.DataLoader(queue_val, batch_size)
+    loader_train = data.DataLoader(ds_train, batch_size, num_workers=64)
+    loader_val = data.DataLoader(ds_val, batch_size, num_workers=1)
 
     logging.info(f"Start training from round {start+1}, total {epochs} rounds.")
     for epoch in range(start, epochs):
@@ -272,8 +296,6 @@ if not args.test:
             )
         save_state(run_dir, epoch, model, optimizer, watchdog=watchdog.state_dict())
 
-trans_test = Compose([preprocess, normalization])
-
 
 def parse_data_test(package, device):
     img = package["img"][DATA]
@@ -282,35 +304,36 @@ def parse_data_test(package, device):
 
 
 if args.test:
-    dataset = CTCSF()
-    dataset = Subset(dataset, list(range(80, 96)))
-    dataset = DatasetWapper(dataset)
-    result = []
-    test_func = ComposeAnalyzer(
-        HausdorffDistance95(label_names), VoxelMetrics(VoxelMethods.keys(), label_names)
-    )
-    for each in dataset:
-        with torch.no_grad():
-            subject = trans_test(each)
-            seg = subject["seg"][DATA]
-            name = subject["name"]
-            ds = UNet3DGridPatch(subject, patch_size, out_size)
-            aggregator = UNet3DGridAggregator(subject)
-            for img, locations in data.DataLoader(ds, batch_size=args.batch_size):
-                logits = model(img.to(device))
-                aggregator.add_batch(logits, locations)
-            output = aggregator.get_output_tensor()
-
-            metrics = test_func(
-                Subject(
-                    name=name,
-                    true=subject["seg"],
-                    pred=LabelMap(tensor=output.argmax(dim=0, keepdim=True)),
-                )
-            )
-            msg = str(metrics)[1:-1]
-            logging.info(f"[Metrics]: {msg}")
-            torch.save(output, name)
-            result.append(metrics)
-    result = pds.DataFrame(result)
-    result.to_csv("test.csv")
+    pass
+    # dataset = CTCSF()
+    # dataset = Subset(dataset, list(range(80, 96)))
+    # dataset = DatasetWapper(dataset)
+    # result = []
+    # test_func = ComposeAnalyzer(
+    #     HausdorffDistance95(label_names), VoxelMetrics(VoxelMethods.keys(), label_names)
+    # )
+    # for each in dataset:
+    #     with torch.no_grad():
+    #         subject = trans_test(each)
+    #         seg = subject["seg"][DATA]
+    #         name = subject["name"]
+    #         ds = UNet3DGridPatch(subject, patch_size, out_size)
+    #         aggregator = UNet3DGridAggregator(subject)
+    #         for img, locations in data.DataLoader(ds, batch_size=args.batch_size):
+    #             logits = model(img.to(device))
+    #             aggregator.add_batch(logits, locations)
+    #         output = aggregator.get_output_tensor()
+    #
+    #         metrics = test_func(
+    #             Subject(
+    #                 name=name,
+    #                 true=subject["seg"],
+    #                 pred=LabelMap(tensor=output.argmax(dim=0, keepdim=True)),
+    #             )
+    #         )
+    #         msg = str(metrics)[1:-1]
+    #         logging.info(f"[Metrics]: {msg}")
+    #         torch.save(output, name)
+    #         result.append(metrics)
+    # result = pds.DataFrame(result)
+    # result.to_csv("test.csv")
