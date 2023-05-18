@@ -1,176 +1,295 @@
-import os
-import argparse
 import logging
+import os
+import time
+from argparse import ArgumentParser
 from typing import *
 
-
+import h5py
+import numpy as np
+import tqdm
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
-import torch.utils.data as data
+import torchio as tio
+import torchvision.transforms.functional as trsf
+from monai.networks.nets.unetr import UNETR
 from torch.cuda.amp.autocast_mode import autocast
 from torch.cuda.amp.grad_scaler import GradScaler
-from torchio import DATA, Subject, LabelMap, ScalarImage
-import torchio as tio
-import pandas as pds
-
-import monai.networks.nets as nets
-
-from ABrain.modelzoo.losses import DiceLoss3D
-from ABrain.dataset import OurDataset, Subset, CTCSF, DatasetWapper
-from ABrain.transforms import ZNormalization, HistogramStandardization, ToCanonical
-from ABrain.transforms import Pad, Crop
-from ABrain.transforms import (
-    RandomFlip,
-    RandomAffine,
-    RandomGhosting,
-    RandomElasticDeformation,
-    RandomGamma,
-    Pad,
+from torch.utils.data import (
+    ConcatDataset,
+    DataLoader,
+    Dataset,
+    TensorDataset,
+    random_split,
 )
-from ABrain.transforms import Compose
-from ABrain.trainer.watchdog import WatchDog, Sniffer
-from ABrain.evaluation import (
-    dice,
-    VoxelMethods,
-    VoxelMetrics,
-    HausdorffDistance95,
-    ComposeAnalyzer,
-)
-from ABrain.inference import UNet3DGridPatch, UNet3DGridAggregator
+from torchio import DATA, LabelMap, ScalarImage, Subject
+
+from ABrain.dataset import CTCSF, OurDataset, Subset
+from ABrain.inference import UNet3DGridAggregator, UNet3DGridPatch
+from ABrain.evaluation import dice
+from ABrain.trainer.watchdog import Sniffer, WatchDog
+from ABrain.modelzoo.losses import DiceLoss3D, DiceLoss2D
 
 
-arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument("--epochs", type=int, default=300, help="训练回合数")
-arg_parser.add_argument("--resume", action="store_true", help="是否接上次训练")
-arg_parser.add_argument("--test", action="store_true", help="在测试集上执行测试")
-arg_parser.add_argument("--lr", type=float, default=3e-4, help="学习率")
-arg_parser.add_argument("--batch-size", type=int, default=128, help="Mini-Batch大小")
-arg_parser.add_argument("--patch-size", nargs=2, type=int, required=True, help="训练块大小")
-arg_parser.add_argument(
-    "--runs", type=str, default="tmp/yeruo/runs", help="训练参数及过程记录存放的文件夹"
-)
-# arg_parser.add_argument('--label_names',)
-arg_parser.add_argument("--gpu-id", type=int, default=1, help="GPU ID")
-arg_parser.add_argument("--inference", type=str, default="./inference", help="预测结果存放位置")
-arg_parser.add_argument("--best-model", action="store_true", help="从验证集上最好的那套参数开始工作")
-arg_parser.add_argument(
-    "--compile-mode", help="Torch 2.0 compile mode", type=str, default="default"
-)
-arg_parser.add_argument("--label-smooth", help="标签平滑", type=float, default=0.0)
+class Augment(object):
+    def __init__(self) -> None:
+        self.p_flip = 0.3
+        self.p_scale = 0.3
+        self.p_rotate = 0.3
+        self.p_shear = 0.3
 
-args = arg_parser.parse_args()
+        self.range_scale = 0.3
+        self.range_rotate = 30
+        self.range_shear = 10
+        self.crop_size = 256
 
-resume = args.resume
-epochs = args.epochs
-lr = args.lr
-batch_size = args.batch_size
-patch_size = tuple(args.patch_size)
-# padding from edge = (128-36)/2 = 46
-label_names = ["BG", "CSF"]
-# label_names = args.label_names
+    def normalize(self, img: torch.Tensor, seg):
+        if not isinstance(img, torch.Tensor):
+            img = torch.from_numpy(img)
+        if not isinstance(img, torch.Tensor):
+            img = torch.from_numpy(img)
+        img = torch.clamp_(img, -10, 244)
+        return img, seg
 
-run_dir = args.runs
-best_dir = os.path.join(run_dir, "best")
-logging.basicConfig(level=logging.INFO)
-if not os.path.exists(run_dir):
-    os.makedirs(run_dir)
-log_path = os.path.join(run_dir, "latest_run.log")
-handler = logging.FileHandler(log_path, mode="a+")
-logging.getLogger().addHandler(handler)
+    def random_flip(self, img, seg):
+        p = torch.rand(2)
+        if p[0] < self.p_flip:
+            if p[1] < 0.5:
+                img = trsf.hflip(img)
+                seg = trsf.hflip(seg)
+            else:
+                img = trsf.vflip(img)
+                seg = trsf.vflip(seg)
+        return img, seg
 
-if args.gpu_id < 0:
-    device = torch.device("cpu")
-else:
-    device = torch.device(f"cuda:{args.gpu_id}")
-loss_func = nn.CrossEntropyLoss(label_smoothing=args.label_smooth)
-# loss_func = DiceLoss3D()
+    def random_affine(self, img, seg):
+        p = torch.rand(8)
+        rotate = 0
+        if p[0] < self.p_rotate:
+            if p[1] < 0.5:
+                rotate += p[1] * self.range_rotate * 2
+            else:
+                rotate += (p[1] - 1) * 2 * self.range_rotate
 
-preprocess = ToCanonical()
-normalization = ZNormalization()
-# padding = Pad([46, 46, 46], padding_mode="reflect")
-augmentations = Compose(
-    [
-        RandomFlip(axes=(0, 1, 2), flip_probability=0.5),
-        RandomAffine(
-            scales=0.2, degrees=25, center="image", default_pad_value="minimum"
-        ),
-        RandomElasticDeformation(),
-        # RandomGhosting(),
-        RandomGamma(),
-    ]
-)
+        scale = 1
+        if p[2] < self.p_scale:
+            if p[3] < 0.5:
+                scale += p[3] * self.range_scale * 2
+            else:
+                scale += (p[3] - 1) * self.range_scale * 2
+
+        shear_x = 0
+        shear_y = 0
+        if p[4] < self.p_shear:
+            if p[5] < 0.5:
+                shear_x += p[6] * self.range_shear * 2
+            else:
+                shear_x += (p[6] - 1) * self.range_shear * 2
+        if p[6] < self.p_shear:
+            if p[7] < 0.5:
+                shear_y += p[7] * self.range_shear * 2
+            else:
+                shear_y += (p[7] - 1) * self.range_shear * 2
+
+        if isinstance(scale, torch.Tensor):
+            scale = scale.item()
+        if isinstance(rotate, torch.Tensor):
+            rotate = rotate.item()
+        if isinstance(shear_x, torch.Tensor):
+            shear_x = shear_x.item()
+        if isinstance(shear_y, torch.Tensor):
+            shear_y = shear_y.item()
+
+        img = trsf.affine(
+            img,
+            rotate,
+            [0, 0],
+            scale,
+            [shear_x, shear_y],
+            trsf.InterpolationMode.BILINEAR,
+        )
+        seg = trsf.affine(
+            seg,
+            rotate,
+            [0, 0],
+            scale,
+            [shear_x, shear_y],
+            trsf.InterpolationMode.NEAREST,
+        )
+        return img, seg
+
+    def random_crop(self, img, seg):
+        if len(img.shape) == 4:
+            _, _, w, h = img.shape
+        else:
+            _, w, h = img.shape
+        x = torch.randint(0, w, size=(1,))
+        y = torch.randint(0, h, size=(1,))
+        d = self.crop_size // 2
+        x = min(x, w - d)
+        y = min(y, h - d)
+        img = trsf.crop(img, x, y, self.crop_size, self.crop_size)
+        seg = trsf.crop(seg, x, y, self.crop_size, self.crop_size)
+        return img, seg
+
+    def __call__(self, img, seg, **kwds: Any) -> Any:
+        img, seg = self.normalize(img, seg)
+        img, seg = self.random_flip(img, seg)
+        img, seg = self.random_affine(img, seg)
+        img, seg = self.random_crop(img, seg)
+        return img, seg
 
 
-logging.info(f"Using `3D U-Net` as the base model.")
-model = nets.unetr.UNETR(
-    in_channels=1, out_channels=len(label_names), img_size=(512, 512), spatial_dims=2
-)
+class AugmentTest(Augment):
+    def __init__(self) -> None:
+        super().__init__()
 
-logging.info(f"[Compile]: mode --> {args.compile_mode}")
-model = torch.compile(model, mode=args.compile_mode)
+    def __call__(self, img, seg, **kwds: Any) -> Any:
+        img, seg = self.normalize(img, seg)
+        return img, seg
+
+
+def make_hd5(ds: OurDataset, path: str):
+    img_pool = []
+    seg_pool = []
+    for sid in ds.sids:
+        img = ds.img_file(sid)
+        seg = ds.seg_file(sid)
+        subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
+        try:
+            subject.check_consistent_spatial_shape()
+        except:
+            print(subject["img"].shape, subject["seg"].shape, sid)
+            continue
+        img = subject["img"][DATA][:, :, :, 2:-2]
+        seg = subject["seg"][DATA][:, :, :, 2:-2]
+        img_pool.append(img)
+        seg_pool.append(seg)
+    # 1,512,512,n
+    img_pool = torch.cat(img_pool, dim=3).permute(3, 0, 1, 2)
+    seg_pool = torch.cat(seg_pool, dim=3).permute(3, 0, 1, 2)
+    with h5py.File(os.path.join(path, "CTCSF.hd5"), "w") as h5:
+        h5.create_dataset("img", data=img_pool, compression="gzip")
+        h5.create_dataset("seg", data=seg_pool, compression="gzip")
+
+
+class H5Dataset(Dataset):
+    def __init__(self, path: str, transforms: Optional[Callable] = None) -> None:
+        super().__init__()
+        self.path = path
+        self.transforms = transforms
+
+    def try_open(self):
+        if not hasattr(self, "h5file"):
+            self.h5file = h5py.File(self.path)
+
+    def __getitem__(self, index) -> Any:
+        self.try_open()
+        img = self.h5file["img"][index, :, :, :]
+        seg = self.h5file["seg"][index, :, :, :]
+        if self.transforms:
+            img, seg = self.transforms(img, seg)
+        return img, seg
+
+    def __len__(self):
+        self.try_open()
+        return self.h5file["img"].shape[0]
 
 
 class CT2DDataset(Dataset):
-    def __init__(self, ds: OurDataset, index_rand, transforms=None) -> None:
+    def __init__(self, ds: OurDataset, transforms=None) -> None:
         super().__init__()
         self.ds = ds
-        self.index_rand = index_rand
         self.n = len(self.ds.sids)
-        self.transfroms = transforms
+        self.transform = transforms
+        img_pool = []
+        seg_pool = []
+        for sid in ds.sids:
+            img = ds.img_file(sid)
+            seg = ds.seg_file(sid)
+            subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
+            try:
+                subject.check_consistent_spatial_shape()
+            except:
+                print(
+                    f'Wrong size ({sid}): img{subject["img"].shape}, seg{subject["seg"].shape}'
+                )
+                continue
+            img = subject["img"][DATA][:, :, :, 2:-2]
+            seg = subject["seg"][DATA][:, :, :, 2:-2]
+            img_pool.append(img)  # 1,512,512,n
+            seg_pool.append(seg)
+
+        self.img_pool = torch.cat(img_pool, dim=3).permute(3, 0, 1, 2)
+        self.seg_pool = torch.cat(seg_pool, dim=3).permute(3, 0, 1, 2)
+
+    def make_tensor_dataset(self):
+        img = self.img_pool
+        seg = self.seg_pool
+        seg = self.seg_pool.squeeze(dim=1)
+        seg[seg == 3] = 1
+        return TensorDataset(img, seg)
 
     def __getitem__(self, index) -> Any:
-        rid = self.index_rand[index]
-        sid = self.ds.sids[rid % self.n]
-        img = self.ds.img_file(sid)
-        seg = self.ds.seg_file(sid)
-        subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
-        if self.transfroms:
-            subject = self.transfroms(subject)
-        _, _, _, d = subject.shape
-        indexd = rid % d
-        slice_img = subject["img"][DATA][:, :, :, indexd]
-        slice_seg = subject["seg"][DATA][:, :, :, indexd]
-        return dict(img=slice_img, seg=slice_seg)
+        img = self.img_pool[index, :, :, :]
+        seg = self.seg_pool[index, :, :, :]
+        if self.transform:
+            img, seg = self.transform(img, seg)
+        return dict(img=img, seg=seg)
 
     def __len__(self):
-        return len(self.index_rand)
+        return self.img_pool.shape[0]
+
+
+class Timer(object):
+    def __init__(self) -> None:
+        self._msg = ""
+
+    def __enter__(self):
+        self.t1 = time.time()
+        self._msg = ""
+        return self
+
+    def msg(self, msg: str):
+        self._msg = msg
+
+    def __exit__(self, *args):
+        t = time.time() - self.t1
+        logging.info(f"{self._msg} {t} s.")
 
 
 class CT2Test(Dataset):
-    def __init__(self, ds: OurDataset, transforms) -> None:
+    def __init__(self, ds: OurDataset, transforms=None) -> None:
         super().__init__()
-        self.subject_id = []
-        self.slice_id = []
-        self.ds = ds
+        self.sids = []
         self.transforms = transforms
-        for i, sid in enumerate(ds.sids):
+        for sid in ds.sids:
             img = ds.img_file(sid)
-            nii = ScalarImage(img)
-            _, _, _, d = nii.shape
-            self.subject_id.extend([i] * d)
-            self.slice_id.extend(range(d))
-        self.current = ""
+            seg = ds.seg_file(sid)
+            subject = Subject(img=ScalarImage(img), seg=LabelMap(seg), name=sid)
+            try:
+                subject.check_consistent_spatial_shape()
+            except:
+                continue
+            self.sids.append(sid)
+        self.ds = ds
 
     def __getitem__(self, index):
-        subject_id = self.subject_id[index]
-        sid = self.ds.sids[subject_id]
-        if self.current != sid:
-            img = self.ds.img_file(sid)
-            seg = self.ds.seg_file(sid)
-            subject = Subject(img=ScalarImage(img), seg=LabelMap(seg))
-            if self.transforms:
-                subject = self.transforms(subject)
-            self.subject = subject
-            self.current = sid
-        slice_id = self.slice_id[index]
-        img = self.subject["img"][DATA]
-        seg = self.subject["seg"][DATA]
-        return dict(img=img[:, :, :, slice_id], seg=seg[:, :, :, slice_id])
+        sid = self.sids[index]
+        img = self.ds.img_file(sid)
+        seg = self.ds.seg_file(sid)
+        subject = Subject(img=ScalarImage(img), seg=LabelMap(seg), name=sid)
+        if self.transforms:
+            subject = self.transforms(img, seg)
+        return subject
 
     def __len__(self):
-        return len(self.slice_id)
+        return len(self.sids)
+
+
+def parse_data(data: Tuple[torch.Tensor, torch.Tensor], device: torch.device):
+    img, seg = data
+    img, seg = img.float(), seg.long()
+    return img.to(device), seg.to(device)
 
 
 class CSF_Sniffer(Sniffer):
@@ -183,52 +302,6 @@ class CSF_Sniffer(Sniffer):
 
     def is_better(self, current, history):
         return current["CSF"] > history["CSF"]
-
-
-watchdog = WatchDog(CSF_Sniffer(label_names))
-
-if resume or args.test:
-    if args.best_model:
-        logging.info("Loading `best` snapshoot...")
-        target_dir = best_dir
-    else:
-        logging.info("Loading `latest` snapshoot...")
-        target_dir = run_dir
-    # model
-    state_model = torch.load(os.path.join(target_dir, "model.state"))
-    model.load_state_dict(state_model)
-    model.to(device)
-
-    # training..
-    if not args.test:
-        state_train = torch.load(os.path.join(target_dir, "train.state"))
-        state_optimizer = torch.load(os.path.join(target_dir, "optim.state"))
-        start = state_train["current_epoch"] + 1
-        optimizer = optim.Adam(model.parameters(), lr=lr)
-        optimizer.load_state_dict(state_optimizer)
-        watchdog.load_state(state_train["watchdog"])
-    else:
-        start = 0
-        optimizer = None
-    state_model = None
-    state_train = None
-    state_optimizer = None
-    # torch.cuda.empty_cache()
-
-else:
-    logging.info("Training from scratch...")
-    start = 0
-    model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-
-scaler = GradScaler()
-
-
-def parse_data(package, device):
-    img = package["img"]
-    seg = package["seg"]
-    target = seg.long()
-    return img.to(device), target.to(device)
 
 
 def gradient_backward(loss, scaler, optimizer):
@@ -248,92 +321,181 @@ def save_state(location, epoch, model, optimizer, **kwargs):
     torch.save(optimizer.state_dict(), os.path.join(location, "optim.state"))
 
 
-if not args.test:
-    # prepare train and val dataset
+if __name__ == "__main__":
+    argparser = ArgumentParser()
+    argparser.add_argument("--epochs", type=int, default=300)
+    argparser.add_argument("--lr", type=float, default=0.0003)
+    argparser.add_argument("--batch-size", type=int, default=32)
+    argparser.add_argument("--prepare-dataset", action="store_true")
+    argparser.add_argument("--hd5", action="store_true")
+    argparser.add_argument("--resume", action="store_true")
+    argparser.add_argument("--gpu-id", type=int, default=-1)
+    argparser.add_argument("--partation", action="store_true")
+    argparser.add_argument("--runs", type=str, default="/tmp/yeruo/runs")
+    argparser.add_argument("--fold", type=int, default=1)
+    argparser.add_argument("--best-model", action="store_true")
 
-    trans_train = Compose([preprocess, augmentations, normalization])
-    trans_val = Compose([preprocess, normalization])
+    args = argparser.parse_args()
+    for each in dir(args):
+        if not each.startswith("__"):
+            logging.info(f"{each}-->{getattr(args,each)}")
+    if not os.path.exists(args.runs):
+        os.makedirs(args.runs)
 
-    ids_train = list(range(10))
-    ids_val = list(range(80, 96))
-    rand_ids = torch.randint(123456789, (10000,))
-    ds = CTCSF(resolution="5.0mm")
-    ds_train = Subset(ds, ids_train)
-    ds_train = CT2DDataset(ds_train, rand_ids, trans_train)
-    ds_val = Subset(ds, ids_val)
-    ds_val = CT2Test(ds_val, trans_val)
+    timer = Timer()
 
-    n_train = len(ds_train)
-    n_val = len(ds_val)
-    logging.info(f"Using `CTCSF`, {n_train} train samples, {n_val} for validation.")
+    if args.gpu_id < 0:
+        device = torch.device("cpu")
+    else:
+        device = torch.device(f"cuda:{args.gpu_id}")
 
-    loader_train = data.DataLoader(ds_train, batch_size, num_workers=4)
-    loader_val = data.DataLoader(ds_val, batch_size, num_workers=1)
+    logging.info(f"Using Device {device.type}:{device.index}")
 
-    logging.info(f"Start training from round {start+1}, total {epochs} rounds.")
-    for epoch in range(start, epochs):
-        model.train()
-        for each in loader_train:
-            input, target = parse_data(each, device)
-            with autocast():
-                out = model(input)
-                loss = loss_func(out, target)
-            gradient_backward(loss, scaler, optimizer)
-            watchdog.catch(loss, out, target)
-        model.eval()
-        for each in loader_val:
-            input, target = parse_data(each, device)
-            with torch.no_grad():
-                out = model(input)
-                loss = loss_func(out, target)
-                watchdog.catch(loss, out, target, mode="validate")
-        current = str(watchdog.step())[1:-1]
-        logging.info(f"[Epoch {epoch+1}]:{current}")
-        if watchdog.happy():
-            logging.info(f"[Better weight]:{current}")
-            save_state(
-                best_dir, epoch, model, optimizer, watchdog=watchdog.state_dict()
-            )
-        save_state(run_dir, epoch, model, optimizer, watchdog=watchdog.state_dict())
+    file_partations = os.path.join(args.runs, "partation.pt")
+    file_hd5 = os.path.join("/dev/shm", "CTCSF.hd5")
+    file_log = os.path.join("latest_run.log")
+    dir_best = os.path.join(args.runs, "best")
+    dir_latest = args.runs
 
+    logging.info(f"Loggings in {file_log}")
 
-def parse_data_test(package, device):
-    img = package["img"][DATA]
-    locations = package[tio.LOCATION]
-    return img.to(device), locations
+    handler = logging.FileHandler(file_log, mode="a+")
+    logging.getLogger().addHandler(handler)
 
+    ds = CTCSF("5.0mm")
+    label_names = ["background", "CSF"]
+    n_labels = len(label_names)
 
-if args.test:
-    pass
-    # dataset = CTCSF()
-    # dataset = Subset(dataset, list(range(80, 96)))
-    # dataset = DatasetWapper(dataset)
-    # result = []
-    # test_func = ComposeAnalyzer(
-    #     HausdorffDistance95(label_names), VoxelMetrics(VoxelMethods.keys(), label_names)
-    # )
-    # for each in dataset:
-    #     with torch.no_grad():
-    #         subject = trans_test(each)
-    #         seg = subject["seg"][DATA]
-    #         name = subject["name"]
-    #         ds = UNet3DGridPatch(subject, patch_size, out_size)
-    #         aggregator = UNet3DGridAggregator(subject)
-    #         for img, locations in data.DataLoader(ds, batch_size=args.batch_size):
-    #             logits = model(img.to(device))
-    #             aggregator.add_batch(logits, locations)
-    #         output = aggregator.get_output_tensor()
-    #
-    #         metrics = test_func(
-    #             Subject(
-    #                 name=name,
-    #                 true=subject["seg"],
-    #                 pred=LabelMap(tensor=output.argmax(dim=0, keepdim=True)),
-    #             )
-    #         )
-    #         msg = str(metrics)[1:-1]
-    #         logging.info(f"[Metrics]: {msg}")
-    #         torch.save(output, name)
-    #         result.append(metrics)
-    # result = pds.DataFrame(result)
-    # result.to_csv("test.csv")
+    if args.partation:
+        N = len(ds)
+        indexs = torch.linspace(0, N - 1, N, dtype=int)
+        cross5 = random_split(indexs, [0.2, 0.2, 0.2, 0.2, 0.2])
+        folds = {}
+        for i in range(5):
+            val_set = None
+            train_set = []
+            for j in range(5):
+                if i == j:
+                    val_set = cross5[j]
+                else:
+                    train_set.append(cross5[j])
+            train_set = [e for e in ConcatDataset(train_set)]
+            val_set = [e for e in val_set]
+            train_set = torch.tensor(train_set)
+            val_set = torch.tensor(val_set)
+            folds[f"fold {i+1}"] = {"train": train_set, "test": val_set}
+        logging.info(
+            f"{N} samples is divided in {5} folds, the the partation file is in {file_partations}"
+        )
+        torch.save(folds, file_partations)
+
+    if args.fold == 0:
+        ds_train = ds
+        ds_test = None
+        logging.info("Training with all the samples.")
+    else:
+        partation = torch.load(os.path.join(args.runs, "partation.pt"))
+        ids_train: torch.Tensor = partation[f"fold {args.fold}"]["train"]
+        ids_test: torch.Tensor = partation[f"fold {args.fold}"]["test"]
+        ds_train = Subset(ds, ids_train)
+        ds_test = Subset(ds, ids_test)
+        logging.info(
+            f"Training over fold {args.fold}, {len(ids_train)} for train, {len(ids_test)} for test."
+        )
+
+    logging.info("Loading dataset...")
+    with timer as t:
+        t.msg("Load dataset token")
+        ds_train = CT2DDataset(ds_train)
+        ds_train = ds_train.make_tensor_dataset()
+        ds_test = CT2Test(ds_test)
+
+    logging.info("Initialize model, augmenter, watchdog, optimizer, loss function...")
+    aug = Augment()
+    watchdog = WatchDog(CSF_Sniffer(label_names))
+    model = UNETR(
+        in_channels=1, out_channels=n_labels, img_size=256, spatial_dims=2
+    ).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    scaler = GradScaler()
+    # loss_func = torch.nn.CrossEntropyLoss()
+    loss_func = DiceLoss2D()
+    loss_func_test = DiceLoss3D()
+    start = 0
+
+    if args.resume:
+        if args.best_model:
+            logging.info("Loading `best` snapshoot...")
+            target_dir = dir_best
+        else:
+            logging.info("Loading `latest` snapshoot...")
+            target_dir = dir_latest
+        # model
+        state_model = torch.load(os.path.join(target_dir, "model.state"))
+        model.load_state_dict(state_model)
+        state_train = torch.load(os.path.join(target_dir, "train.state"))
+        state_optimizer = torch.load(os.path.join(target_dir, "optim.state"))
+        start = state_train["current_epoch"] + 1
+        optimizer.load_state_dict(state_optimizer)
+        watchdog.load_state(state_train["watchdog"])
+
+    n = len(ds_train)
+    epochs = args.epochs - start
+    logging.info(f"{epochs} epochs need to be done, current is Epoch {start}")
+    ds_train = ConcatDataset([ds_train] * epochs)
+
+    iters = 0
+    epoch = 0
+
+    loader = tqdm.tqdm(
+        DataLoader(ds_train, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    )
+    for data in loader:
+        img, seg = parse_data(data, device)
+        img, seg = aug(img, seg)
+        with autocast():
+            out = model(img)
+            loss = loss_func(out, seg)
+        gradient_backward(loss, scaler, optimizer)
+        loader.set_description_str(f"loss:{loss.item()}")
+        watchdog.catch(loss, out, seg)
+        iters += img.shape[0]
+        if iters >= n:
+            model.eval()
+            for subject in ds_test:
+                name = subject["name"]
+                seg = subject["seg"][DATA].long().to(device)
+                seg[seg == 3] = 1
+                patchs = UNet3DGridPatch(subject, (256, 256, 1), (256, 256, 1))
+                aggregator = UNet3DGridAggregator(subject)
+                with torch.no_grad():
+                    for img, locations in DataLoader(
+                        patchs, batch_size=args.batch_size
+                    ):
+                        img: torch.Tensor = img.float().to(device)
+                        a, c, w, h, d = img.shape
+                        img = img.permute(0, 4, 1, 2, 3)  # a,c,d,w,h
+                        img = img.reshape(a * d, c, w, h)
+                        logits = model(img.to(device))
+                        logits = logits.reshape(a, d, -1, w, h)
+                        logits = logits.permute(0, 2, 3, 4, 1)
+                        aggregator.add_batch(logits, locations)
+                output = aggregator.get_output_tensor(cpu=False)
+                output.unsqueeze_(dim=0)
+                # seg.unsqueeze_(dim=0)
+                loss = loss_func_test(output, seg)
+                watchdog.catch(loss, output, seg, mode="validate")
+                logging.info(f"loss of {name} is {loss.item()}")
+            model.train()
+            epoch += 1
+            iters -= n
+            current = str(watchdog.step())[1:-1]
+            if watchdog.happy():
+                logging.info(f"[Better weight]:{current}")
+                save_state(
+                    dir_best, epoch, model, optimizer, watchdog=watchdog.state_dict()
+                )
+            else:
+                save_state(
+                    dir_latest, epoch, model, optimizer, watchdog=watchdog.state_dict()
+                )

@@ -5,7 +5,7 @@ from torchio import Transform, Subject, Pad, DATA
 
 
 class UNet3DGridPatch(data.Dataset):
-    '''生成用于3D U-Net推断的图像patch块。
+    """生成用于3D U-Net推断的图像patch块。
 
     ### Args:
     - `subject:     Torchio.Subject`
@@ -29,7 +29,7 @@ class UNet3DGridPatch(data.Dataset):
     >>> torch.save(output.cpu(), name)
     >>> label = output.argmax(dim=0)
     ```
-    '''
+    """
 
     def fixed_bounds(self, width, size, step):
         ans = []
@@ -37,21 +37,26 @@ class UNet3DGridPatch(data.Dataset):
         while True:
             ans.append(s)
             s += step
-            if s+width > size:
-                ans.append(size-width)
+            if s + width > size:
+                ans.append(size - width)
                 break
         return torch.tensor(ans).unique()
 
-    def __init__(self, subject: Subject, patch_size: Tuple[int], output_size: Tuple[int], transforms: Optional[Transform] = None) -> None:
+    def __init__(
+        self,
+        subject: Subject,
+        patch_size: Tuple[int],
+        output_size: Tuple[int],
+        transforms: Optional[Transform] = None,
+    ) -> None:
         super().__init__()
         self.subject = subject if transforms is None else transforms(subject)
         w, h, d = output_size
         x, y, z = patch_size
         patch_size = torch.tensor(patch_size, dtype=int)
         output_size = torch.tensor(output_size, dtype=int)
-        padding = (patch_size-output_size).div(2,
-                                               rounding_mode='trunc').tolist()
-        padding = Pad(padding=padding, padding_mode='reflect')
+        padding = (patch_size - output_size).div(2, rounding_mode="trunc").tolist()
+        padding = Pad(padding=padding, padding_mode="reflect")
         self.subject = padding(self.subject)
         W, H, D = self.subject.shape[-3:]
         X = self.fixed_bounds(x, W, w)
@@ -65,7 +70,7 @@ class UNet3DGridPatch(data.Dataset):
 
     def __getitem__(self, index):
         a, b, c, A, B, C = self.bounds[index]
-        img = self.subject['img'][DATA][:, a:A, b:B, c:C]
+        img = self.subject["img"][DATA][:, a:A, b:B, c:C]
         location = self.locations[index]
         return img, location
 
@@ -74,12 +79,12 @@ class UNet3DGridPatch(data.Dataset):
 
 
 class UNet3DGridAggregator(object):
-    '''基于patch块来构建完整的分割概率图
+    """基于patch块来构建完整的分割概率图
 
     ### Args:
     - `subject:torchio.Subject`
         用于预测的输入图像
-    '''
+    """
 
     def __init__(self, subject: Subject) -> None:
         self.output_size = subject.shape[-3:]
@@ -87,30 +92,28 @@ class UNet3DGridAggregator(object):
         self.cnt = None
 
     def add_batch(self, patch, location) -> None:
-        '''收录patch， 用于拼接完整的概率图
+        """收录patch， 用于拼接完整的概率图
         ### Args:
         - `patch:Tensor`
         - `location:Tensor`
-        '''
+        """
         B, C, W, H, D = patch.shape
         if self.data is None:
             self.data = torch.zeros(
-                C, *self.output_size,
-                dtype=patch.dtype,
-                device=patch.device
+                C, *self.output_size, dtype=patch.dtype, device=patch.device
             )
             self.cnt = torch.zeros(
-                C, *self.output_size,
-                dtype=patch.dtype,
-                device=patch.device
+                C, *self.output_size, dtype=patch.dtype, device=patch.device
             )
         for i in range(B):
             x, y, z, X, Y, Z = location[i]
             self.data[:, x:X, y:Y, z:Z] += patch[i]
-            self.cnt[:, x:X, y:Y, z:Z] += 1.
+            self.cnt[:, x:X, y:Y, z:Z] += 1.0
 
-    def get_output_tensor(self) -> torch.Tensor:
-        '''返回拼接好的概率图
-        '''
-        res = self.data/self.cnt
-        return res.cpu()
+    def get_output_tensor(self, cpu: bool = True) -> torch.Tensor:
+        """返回拼接好的概率图"""
+        res = self.data / self.cnt
+        if cpu:
+            return res.cpu()
+        else:
+            return res

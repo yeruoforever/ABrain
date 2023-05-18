@@ -5,10 +5,12 @@ from torchio import Compose
 from torchio.transforms.augmentation import RandomTransform
 
 from torch.utils.data import Dataset
-from torchdata.datapipes import iter
+from torch.utils.data.datapipes import iter as iter
+
+# from torchdata.datapipes import iter
 
 
-def read_config(conf_name:str):
+def read_config(conf_name: str):
     with open("database.toml", "r") as f:
         config = toml.load(f)
     if conf_name in config.keys():
@@ -16,22 +18,21 @@ def read_config(conf_name:str):
     else:
         datasets = config["Dataset"]
         n = len(datasets)
-        keys = {datasets[i]["name"]:i for i in range(n)}
+        keys = {datasets[i]["name"]: i for i in range(n)}
         if conf_name in keys:
             return datasets[keys[conf_name]]
         else:
             raise KeyError(f"{conf_name} is not a dataset.")
 
 
-
 class OurDataset(object):
     def __init__(
         self,
         database,
-        name:str,
+        name: str,
         has_seg: bool = False,
         has_label: bool = False,
-        has_info: bool = False
+        has_info: bool = False,
     ) -> None:
         super().__init__()
         self.database = database
@@ -75,11 +76,7 @@ class Subset(OurDataset):
 
 def train_subjects(x):
     sid, img, seg = x
-    return Subject(
-        name=sid,
-        img=ScalarImage(img),
-        seg=LabelMap(seg)
-    )
+    return Subject(name=sid, img=ScalarImage(img), seg=LabelMap(seg))
 
 
 def test_subjects(x):
@@ -92,7 +89,6 @@ def test_subjects(x):
 
 
 class DatasetWapper(Dataset):
-
     def __init__(self, dataset: OurDataset, transforms: Compose = None) -> None:
         super().__init__()
         self.ds = dataset
@@ -103,16 +99,9 @@ class DatasetWapper(Dataset):
         if self.ds.has_seg:
             img = self.ds.img_file(sid)
             seg = self.ds.seg_file(sid)
-            subject = Subject(
-                name=sid,
-                img=ScalarImage(img),
-                seg=LabelMap(seg)
-            )
+            subject = Subject(name=sid, img=ScalarImage(img), seg=LabelMap(seg))
         else:
-            subject = Subject(
-                name=sid,
-                img=ScalarImage(self.ds.img_file(sid))
-            )
+            subject = Subject(name=sid, img=ScalarImage(self.ds.img_file(sid)))
         if self.ts:
             return self.ts(subject)
         else:
