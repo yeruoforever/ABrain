@@ -27,21 +27,21 @@ PLANE_UNKNOWN = -1
 
 class Status(object):
     def __init__(self) -> None:
-        self.screen_size = [1280, 720]
-        self.viewport = [0, 0, 995, 720]
+        self.screen_size = ivec2(1280, 720)
+        self.viewport = ivec4(0, 0, 995, 720)
         self.view_type = PlANE_ALL
 
-        self.mouse_pos = [0, 0]
-        self.mouse_state = [False, False]
+        self.mouse_pos = ivec2(0, 0)
+        self.mouse_state = bvec2(False, False)
         self.mouse_activate = PlANE_ALL
         self.mouse_scroll_speed = 0.05
 
         self.key_status = [False] * 1024
 
-        self.camera_origin = [0.0, 0.0, 40.0]
-        self.camera_target = [0.0, 0.0, 0.0]
-        # self.view_far = 100.0
-        # self.view_near = 0.1
+        self.camera_origin = vec3(0.0, 0.0, 40.0)
+        self.camera_target = vec3(0.0, 0.0, 0.0)
+        self.camera_up = vec3(0.0, 1.0, 0.0)
+        self.camera_update_lookat()
         self.view_radians = 3.141592 / 4.0
 
         self.ray_step = 0.001
@@ -52,23 +52,23 @@ class Status(object):
         self.voxel_window = 100.0
 
         self.color_overlap = 0.5
-        self.color_background = [0.0, 0.0, 0.0]
-        self.color_target_1 = [0.0, 1.0, 0.0]
-        self.color_target_2 = [0.0, 0.0, 1.0]
+        self.color_background = vec3(0.0, 0.0, 0.0)
+        self.color_target_1 = vec3(0.0, 1.0, 0.0)
+        self.color_target_2 = vec3(0.0, 0.0, 1.0)
 
         self.input_file = ""
         self.recents = Queue(MAX_HISTORY_LENGTH)
         self.file_opened = False
 
-        self.img_spacing = [0.0, 0.0, 0.0]
-        self.img_shape = [0, 0, 0]
+        self.img_spacing = vec3(0.0, 0.0, 0.0)
+        self.img_shape = vec3(0, 0, 0)
         self.img_modalty = "CT"
-        self.img_region = [0.0, 0.0, 0.0]
+        self.img_region = vec3(0.0, 0.0, 0.0)
         self.img_body_range = "Head (Brain)"
 
-        self.plane_focus = [0.0, 0.0, 0.0]
+        self.plane_focus = vec3(0.0, 0.0, 0.0)
         self.plane_scale = 0.30
-        self.plane_slice = [0.0, 0.0, 0.0]
+        self.plane_slice = vec3(0.0, 0.0, 0.0)
 
         self.patient_id = "CT20220222"
         self.patient_name = "蔡某某"
@@ -79,11 +79,13 @@ class Status(object):
         self.frame_timestamp = time.time()
 
     def update_img_meta(self, spacing, shape, modalty):
-        self.img_spacing = list(spacing)
-        self.img_shape = list(shape)
+        self.img_spacing = vec3(*spacing)
+        self.img_shape = vec3(*shape)
         self.modalty = modalty
         region = np.array(spacing) * np.array(shape)
-        self.img_region = region.tolist()
+        self.img_region = vec3(*region)
+        self.update_aspact()
+        self.update_M2W()
 
     def update_patient_meta(self, pid, name, age, gender, weight):
         self.patient_id = pid
@@ -93,10 +95,9 @@ class Status(object):
         self.patient_weight = weight
 
     def reset_camera(self):
-        self.camera_origin = [0.0, 0.0, 40.0]
-        self.camera_target = [0.0, 0.0, 0.0]
-        self.view_far = 100.0
-        self.view_near = 0.1
+        self.camera_origin = vec3(0.0, 0.0, 40.0)
+        self.camera_target = vec3(0.0, 0.0, 0.0)
+        self.camera_update_lookat()
         self.view_radians = 3.141592 / 4.0
 
     def frame_time_step(self):
@@ -122,44 +123,29 @@ class Status(object):
         self.input_file = ""
         self.file_opened = True
 
-    def camera_lookat(self):
+    def camera_update_lookat(self):
         """view matrix"""
-        return lookAt(
-            vec3(*self.camera_origin),
-            vec3(*self.camera_target),
-            vec3(0.0, 1.0, 0.0),
+        self.camera_lookat = lookAt(
+            self.camera_origin,
+            self.camera_target,
+            self.camera_up,
         )
+        self.W2V = self.camera_lookat
+        self.V2W = inverse(self.W2V)
 
-    # def projection(self):
-    #     return perspective(
-    #         self.view_radians,
-    #         self.viewport[2] / self.viewport[3],
-    #         self.view_near,
-    #         self.view_far,
-    #     )
-
-    def mat_W2V(self):
-        return self.camera_lookat()
-
-    def mat_V2W(self):
-        return inverse(self.camera_lookat())
-
-    def img_aspact(self):
+    def update_aspact(self):
         L = min(*self.img_region)
-        aspect = np.array(self.img_region) / L
-        return aspect.tolist()
+        aspect = self.img_region / L
+        self.img_aspect = vec3(aspect)
 
-    def mat_M2W(self):
+    def update_M2W(self):
         m = mat4(1)
         t = translate(m, vec3(-0.5, -0.5, -0.5))
         s = scale(m, vec3(2, 2, 2))
-        ss = scale(m, vec3(*self.img_aspact()))
-        return ss * s * t
-
-    def mat_W2M(self):
-        return inverse(self.mat_M2W())
+        ss = scale(m, self.img_aspect)
+        self.M2W = ss * s * t
+        self.W2M = inverse(self.M2W)
 
     def cube_bounding(self):
         a, b = vec4(0, 0, 0, 1), vec4(1)
-        m2w = self.mat_M2W()
-        return (m2w * a).xyz, (m2w * b).xyz
+        return (self.M2W * a).xyz, (self.M2W * b).xyz

@@ -30,7 +30,7 @@ class GUI(object):
         imgui.create_context()
         self.impl = GlfwRenderer(window)
         self.state = status
-        self.mouse_pos_last = [0.0, 0.0]
+        self.mouse_pos_last = glm.vec2(0.0, 0.0)
         glfw.set_mouse_button_callback(window, self.mouse_viewport_click)
         glfw.set_cursor_pos_callback(window, self.mouse_viewport_move)
         glfw.set_framebuffer_size_callback(window, self.resize_window)
@@ -125,17 +125,31 @@ class GUI(object):
         if self.state.mouse_state[0]:
             delta_x = xpos - self.mouse_pos_last[0]
             delta_y = ypos - self.mouse_pos_last[1]
-            delta_x *= self.state.plane_scale * scale
-            delta_y *= self.state.plane_scale * scale
+
             if self.state.mouse_activate == PLANE_CROSS:
+                delta_x *= self.state.plane_scale * scale
+                delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[0] -= delta_x
                 self.state.plane_focus[1] += delta_y
             elif self.state.mouse_activate == PLANE_CORONAL:
+                delta_x *= self.state.plane_scale * scale
+                delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[0] -= delta_x
                 self.state.plane_focus[2] += delta_y
             elif self.state.mouse_activate == PLANE_SAGITTAL:
+                delta_x *= self.state.plane_scale * scale
+                delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[1] -= delta_x
                 self.state.plane_focus[2] += delta_y
+            elif self.state.mouse_activate == PLANE_3D:
+                mat = self.state.camera_lookat
+                rx = glm.rotate(delta_x * 0.03, glm.row(mat, 1).xyz)
+                ry = glm.rotate(delta_y * 0.03, glm.row(mat, 0).xyz)
+                r = rx * ry
+                self.state.camera_up = r * self.state.camera_up
+                self.state.camera_origin = r * self.state.camera_origin
+                self.state.camera_update_lookat()
+
             self.mouse_pos_last[0] = xpos
             self.mouse_pos_last[1] = ypos
 
@@ -243,6 +257,8 @@ class GUI(object):
                     max_value=1000,
                     format="%.2f",
                 )
+                if changed:
+                    self.state.camera_update_lookat()
                 has_changed = has_changed or changed
 
             L = max(*self.state.img_region) / 2
@@ -346,8 +362,8 @@ class GUI(object):
     def debug_3d(self):
         with imgui.begin("vertex"):
             W, H = self.state.viewport[2], self.state.viewport[3]
-            V = self.state.mat_W2V()
-            Vi = self.state.mat_V2W()
+            V = self.state.W2V
+            Vi = self.state.V2W
             aspect = W / H
             ndc = [
                 (self.state.mouse_pos[0] / W) * 2 - 1,
@@ -380,14 +396,14 @@ class GUI(object):
             pix_window = pix_max - pix_min
             imgui.text(f"体素亮度范围:  {pix_min,pix_max}")
             imgui.text(f"体素亮度窗口大小:  {pix_window}")
-            imgui.text(f"转换矩阵（模型到世界）\n{self.state.mat_M2W()}")
-            imgui.text(f"转换矩阵（世界到模型）\n{self.state.mat_W2M()}")
+            imgui.text(f"转换矩阵（模型到世界）\n{self.state.M2W}")
+            imgui.text(f"转换矩阵（世界到模型）\n{self.state.W2M}")
             bbox = self.state.cube_bounding()
             eye = glm.vec3(*self.state.camera_origin)
             imgui.text(f"图像边界1:  {bbox[0]}")
             imgui.text(f"图像边界2:  {bbox[1]}")
             slab = is_insersect(eye, ray, bbox[0], bbox[1])
-            W2M = self.state.mat_W2M()
+            W2M = self.state.W2M
             imgui.text(f"纹理边界1: {W2M*bbox[0]}")
             imgui.text(f"纹理边界2: {W2M*bbox[1]}")
             imgui.text(f"纹理边界3： {W2M*glm.vec4(0)}")

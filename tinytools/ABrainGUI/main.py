@@ -183,7 +183,7 @@ class Render(object):
             # glUniform1d()
             glUniform1f(self.ptrs_3d["fov"], self.state.view_radians)
             glUniform3f(self.ptrs_3d["eye"], *self.state.camera_origin)
-            view_i = self.state.mat_V2W()
+            view_i = self.state.V2W
             glUniformMatrix4fv(
                 self.ptrs_3d["V2W"],
                 1,
@@ -198,7 +198,7 @@ class Render(object):
             glUniform3fv(self.ptrs_3d["cube_a"], 1, glm.value_ptr(bbox[0]))
             glUniform3fv(self.ptrs_3d["cube_b"], 1, glm.value_ptr(bbox[1]))
             # only need load once
-            w2m = self.state.mat_W2M()
+            w2m = self.state.W2M
             glUniformMatrix4fv(self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(w2m))
 
             glUniform3f(self.ptrs_3d["color_bg"], *self.state.color_background)
