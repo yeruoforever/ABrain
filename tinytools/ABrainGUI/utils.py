@@ -30,17 +30,17 @@ class Buffer(object):
 
 
 class Texture(object):
-    def __init__(self, texture, tex_type) -> None:
+    def __init__(self, texture) -> None:
         self.texture = texture
-        self.type = tex_type
 
     def __enter__(self):
-        if self.texture != 0:
-            glBindTexture(self.type, self.texture)
+        if self.texture != GL_TEXTURE0:
+            glActiveTexture(self.texture)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        glBindTexture(self.type, 0)
+        if self.texture != GL_TEXTURE0:
+            glActiveTexture(GL_TEXTURE0)
 
 
 class Program(object):

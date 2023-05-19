@@ -38,22 +38,23 @@ class Status(object):
 
         self.key_status = [False] * 1024
 
-        self.camera_origin = [4.0, 4.0, 4.0]
+        self.camera_origin = [0.0, 0.0, 40.0]
         self.camera_target = [0.0, 0.0, 0.0]
         # self.view_far = 100.0
         # self.view_near = 0.1
         self.view_radians = 3.141592 / 4.0
 
         self.ray_step = 0.001
-        self.ray_alpha = 0.18
+        self.ray_alpha = 0.01
 
         self.voxel_min = 0.0
         self.voxel_max = 100.0
         self.voxel_window = 100.0
 
-        self.color_background = [0.0, 0.0, 0.0, 0.0]
-        self.color_target_1 = [1.0, 0.0, 0.0, 1.0]
-        self.color_target_2 = [0.0, 1.0, 0.0, 1.0]
+        self.color_overlap = 0.5
+        self.color_background = [0.0, 0.0, 0.0]
+        self.color_target_1 = [0.0, 1.0, 0.0]
+        self.color_target_2 = [0.0, 0.0, 1.0]
 
         self.input_file = ""
         self.recents = Queue(MAX_HISTORY_LENGTH)
@@ -70,7 +71,7 @@ class Status(object):
         self.plane_slice = [0.0, 0.0, 0.0]
 
         self.patient_id = "CT20220222"
-        self.patient_name = "蔡徐坤"
+        self.patient_name = "蔡某某"
         self.patient_age = "38"
         self.patient_gender = "女"
         self.patient_weight = "75 kg"
@@ -92,7 +93,7 @@ class Status(object):
         self.patient_weight = weight
 
     def reset_camera(self):
-        self.camera_origin = [4.0, 4.0, 4.0]
+        self.camera_origin = [0.0, 0.0, 40.0]
         self.camera_target = [0.0, 0.0, 0.0]
         self.view_far = 100.0
         self.view_near = 0.1

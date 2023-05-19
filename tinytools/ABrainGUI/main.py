@@ -44,8 +44,12 @@ class Render(object):
             "slice",
             "range",
             "hu_range",
+            "color_bg",
+            "color_1",
+            "color_2",
             "img",
             "seg",
+            "mix_rate",
         ]
         self.ptrs_plane = shader_ptrs(self.shader_plane, symbols)
         symbols = [
@@ -62,6 +66,10 @@ class Render(object):
             "W2M",
             "img",
             "seg",
+            "color_bg",
+            "color_1",
+            "color_2",
+            "mix_rate",
         ]
         self.ptrs_3d = shader_ptrs(self.shader_3d, symbols)
         print(self.ptrs_plane, self.ptrs_3d)
@@ -82,7 +90,7 @@ class Render(object):
                 glEnableVertexAttribArray(0)
 
     def load_volume_texture(self, img: np.ndarray):
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         bg_img = np.array([0.0, 0.0, 1.0], dtype=np.float32)
         glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, bg_img)
@@ -99,7 +107,7 @@ class Render(object):
             GL_FLOAT,
             img.ctypes.data_as(GLvoidp)
         )
-        glGenerateMipmap(GL_TEXTURE_3D)
+        # glGenerateMipmap(GL_TEXTURE_3D)
 
     def create_texture(
         self, img: Optional[np.ndarray] = None, seg: Optional[np.ndarray] = None
@@ -114,9 +122,11 @@ class Render(object):
                 glDeleteTextures(1, self.texture_seg)
             self.texture_img = glGenTextures(1)
             self.texture_seg = glGenTextures(1)
-            with Texture(self.texture_img, GL_TEXTURE_3D):
+            with Texture(GL_TEXTURE0):
+                glBindTexture(GL_TEXTURE_3D, self.texture_img)
                 self.load_volume_texture(img)
-            with Texture(self.texture_seg, GL_TEXTURE_3D):
+            with Texture(GL_TEXTURE1):
+                glBindTexture(GL_TEXTURE_3D, self.texture_seg)
                 self.load_volume_texture(seg)
 
     def init_glfw(self):
@@ -146,20 +156,29 @@ class Render(object):
         with Program(self.shader_plane):
             W, H = self.state.viewport[2], self.state.viewport[3]
             W, H = W * self.state.plane_scale, H * self.state.plane_scale
-            glUniform2f(self.ptrs_plane["screen"], W, H)
+            glUniform2f(self.ptrs_plane["screen"], float(W), float(H))
             glUniform3f(self.ptrs_plane["focus"], *self.state.plane_focus)
             glUniform3f(self.ptrs_plane["slice"], *self.state.plane_slice)
             glUniform3f(self.ptrs_plane["range"], *self.state.img_region)
             glUniform2f(
                 self.ptrs_plane["hu_range"], self.state.voxel_min, self.state.voxel_max
             )
+
+            glUniform3f(self.ptrs_plane["color_bg"], *self.state.color_background)
+            glUniform3f(self.ptrs_plane["color_1"], *self.state.color_target_1)
+            glUniform3f(self.ptrs_plane["color_2"], *self.state.color_target_2)
+            glUniform1f(self.ptrs_plane["mix_rate"], self.state.color_overlap)
+
+            glUniform1i(self.ptrs_plane["img"], 0)
+            glUniform1i(self.ptrs_plane["seg"], 1)
+
             # IMG,SEG
 
         with Program(self.shader_3d):
             glUniform2f(
                 self.ptrs_3d["screen"],
-                self.state.viewport[2],
-                self.state.viewport[3],
+                float(self.state.viewport[2]),
+                float(self.state.viewport[3]),
             )
             # glUniform1d()
             glUniform1f(self.ptrs_3d["fov"], self.state.view_radians)
@@ -179,9 +198,16 @@ class Render(object):
             glUniform3fv(self.ptrs_3d["cube_a"], 1, glm.value_ptr(bbox[0]))
             glUniform3fv(self.ptrs_3d["cube_b"], 1, glm.value_ptr(bbox[1]))
             # only need load once
-            glUniformMatrix4fv(
-                self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(self.state.mat_W2M())
-            )
+            w2m = self.state.mat_W2M()
+            glUniformMatrix4fv(self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(w2m))
+
+            glUniform3f(self.ptrs_3d["color_bg"], *self.state.color_background)
+            glUniform3f(self.ptrs_3d["color_1"], *self.state.color_target_1)
+            glUniform3f(self.ptrs_3d["color_2"], *self.state.color_target_2)
+            glUniform1f(self.ptrs_3d["mix_rate"], self.state.color_overlap)
+
+            glUniform1i(self.ptrs_3d["img"], 0)
+            glUniform1i(self.ptrs_3d["seg"], 1)
 
     def update_texture(self):
         if self.state.need_reload_file():
@@ -205,17 +231,15 @@ class Render(object):
     def draw_panel(self, plane_type):
         if plane_type == PLANE_3D:
             shader = self.shader_3d
-            with VAO(self.vao):
-                with Program(shader):
-                    with Texture(self.texture_img, GL_TEXTURE_3D):
-                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+            with Program(shader):
+                with VAO(self.vao):
+                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
         else:
             shader = self.shader_plane
-            with VAO(self.vao):
-                with Program(shader):
-                    glUniform1i(self.ptrs_plane["plane"], plane_type)
-                    with Texture(self.texture_img, GL_TEXTURE_3D):
-                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+            with Program(shader):
+                glUniform1i(self.ptrs_plane["plane"], plane_type)
+                with VAO(self.vao):
+                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
     def do_render(self):
         glClear(GL_COLOR_BUFFER_BIT)
@@ -244,7 +268,10 @@ class Render(object):
         self.prepare_glfw()
         self.prepare_opengl()
         if DEBUG:
-            self.state.input_file = "/Users/yeruo/WorkSpace/3月颅脑CT及标记数据数据/3月颅脑导数据/标记数据/img/1.25mm/20230327007282.nii.gz"
+            self.state.input_file = (
+                "/Users/yeruo/WorkSpace/CTCSF/5.0mm/img/20230102000345.nii.gz"
+                # "/Users/yeruo/WorkSpace/3月颅脑CT及标记数据数据/3月颅脑导数据/标记数据/img/1.25mm/20230327007282.nii.gz"
+            )
             self.update_texture()
         while glfw.window_should_close(self.window) == 0:
             self.render_loop()

@@ -65,13 +65,13 @@ class GUI(object):
         self.state.viewport[3] = height
 
     def key_tracking(self, window, key, scancode, action, mods):
-        if action == glfw.PRESS:
+        if action == glfw.PRESS or action == glfw.REPEAT:
             self.state.key_status[key] = True
         elif action == glfw.RELEASE:
             self.state.key_status[key] = False
         if (
-            self.state.key_status[glfw.KEY_LEFT_CONTROL]
-            or self.state.key_status[glfw.KEY_RIGHT_CONTROL]
+            self.state.key_status[glfw.KEY_LEFT_SHIFT]
+            or self.state.key_status[glfw.KEY_RIGHT_SHIFT]
         ):
             self.mouse_pos_last[0] = self.state.mouse_pos[0]
             self.mouse_pos_last[1] = self.state.mouse_pos[1]
@@ -141,8 +141,8 @@ class GUI(object):
 
     def mouse_scroll(self, window, xoffset, yoffset):
         if (
-            self.state.key_status[glfw.KEY_LEFT_CONTROL]
-            or self.state.key_status[glfw.KEY_RIGHT_CONTROL]
+            self.state.key_status[glfw.KEY_LEFT_SHIFT]
+            or self.state.key_status[glfw.KEY_RIGHT_SHIFT]
         ):
             self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
             self.state.plane_scale = min(self.state.plane_scale, 3)
@@ -231,7 +231,7 @@ class GUI(object):
             if imgui.button("重设3D相机"):
                 self.state.reset_camera()
             changed, self.state.view_radians = imgui.slider_angle(
-                "视野大小", self.state.view_radians, 0.0, 180.0
+                "视野大小", self.state.view_radians, 20.0, 160.0
             )
             has_changed = has_changed or changed
 
@@ -267,10 +267,25 @@ class GUI(object):
                 0.0,
                 1.5,
             )
+            changed, self.state.ray_step = imgui.slider_float(
+                "光线步长", self.state.ray_step, 0.001, 0.01, format="%.4f"
+            )
+            changed, self.state.ray_alpha = imgui.slider_float(
+                "透明度",
+                self.state.ray_alpha,
+                0.0001,
+                1.0,
+            )
 
     def voxel_setting(self):
         with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
             has_changed = False
+            changed, self.state.color_overlap = imgui.slider_float(
+                "标注透明度",
+                self.state.color_overlap,
+                0.0,
+                1.0,
+            )
             changed, values = imgui.slider_float2(
                 "体素值域",
                 self.state.voxel_min,
@@ -281,6 +296,13 @@ class GUI(object):
             if changed:
                 self.state.voxel_min = values[0]
                 self.state.voxel_max = values[1]
+
+            changed, self.state.color_target_1 = imgui.color_edit3(
+                "侧脑室", *self.state.color_target_1
+            )
+            changed, self.state.color_target_2 = imgui.color_edit3(
+                "三脑室", *self.state.color_target_2
+            )
 
     def image_color_setting(self):
         with imgui.begin(
@@ -349,6 +371,8 @@ class GUI(object):
             imgui.text(f"转换矩阵（世界到视野）:\n{V}")
             imgui.text(f"转换矩阵（视野到世界）:\n{Vi}")
             imgui.text(f"光线方向: {ray}")
+            ray_color = ray * 0.5 + 0.5
+            imgui.color_edit3("光线", ray_color.x, ray_color.y, ray_color.z)
         with imgui.begin("fragment"):
             imgui.text(f"光线步长:  {self.state.ray_step}")
             imgui.text(f"光线不透明度:  {self.state.ray_alpha}")
@@ -366,6 +390,7 @@ class GUI(object):
             W2M = self.state.mat_W2M()
             imgui.text(f"纹理边界1: {W2M*bbox[0]}")
             imgui.text(f"纹理边界2: {W2M*bbox[1]}")
+            imgui.text(f"纹理边界3： {W2M*glm.vec4(0)}")
             flag, t_min, t_max = slab
             step_min = t_min * ray
             step_max = t_max * ray
@@ -385,16 +410,16 @@ class GUI(object):
                 20,
             )
             self.patient_message()
-            imgui.set_next_window_size(MSG_BOX, 245)
+            imgui.set_next_window_size(MSG_BOX, 295)
             imgui.set_next_window_position(
                 self.state.viewport[2],
                 20 + 150,
             )
             self.camera_control()
-            imgui.set_next_window_size(MSG_BOX, 40)
+            imgui.set_next_window_size(MSG_BOX, 105)
             imgui.set_next_window_position(
                 self.state.viewport[2],
-                20 + 150 + 245,
+                20 + 150 + 295,
             )
             self.voxel_setting()
             self.image_color_setting()

@@ -12,8 +12,8 @@ uniform mat4 V2W;                // 视野坐标转世界坐标
 
 
 void main(){
-    gl_Position = vec4(ndc,1.0,1.0);
+    gl_Position = vec4(ndc,0.0,1.0);
     float aspect = screen.x/screen.y;
-    vec4 light = -V2W*vec4(aspect*screen.x, screen.y, 1/tan(fov/2),1.0);
+    vec4 light = -V2W*vec4(aspect*ndc.x, ndc.y, -1.0/tan(0.5*fov), 1.0);
     light_dir = normalize(light.xyz);
 }
