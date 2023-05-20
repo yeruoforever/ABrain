@@ -41,14 +41,14 @@ class Status(object):
 
         self.key_status = [False] * 1024
 
-        self.camera_origin = vec3(0.0, 0.0, 40.0)
+        self.camera_origin = vec3(0.0, 0.0, 5.0)
         self.camera_target = vec3(0.0, 0.0, 0.0)
         self.camera_up = vec3(0.0, 1.0, 0.0)
         self.camera_update_lookat()
         self.view_radians = 3.141592 / 4.0
 
-        self.ray_step = 0.001
-        self.ray_alpha = 0.01
+        self.ray_step = 0.01
+        self.ray_alpha = 0.02
 
         self.voxel_min = 0.0
         self.voxel_max = 100.0
@@ -89,6 +89,12 @@ class Status(object):
         for i in range(PlANE_ALL - 1):
             self.need_refresh[i] = True
 
+    def reset_focus(self):
+        self.plane_focus = vec3(0)
+
+    def reset_slice(self):
+        self.plane_slice = vec3(0)
+
     def check_and_set_refresh(self, plane, flag):
         self.need_refresh[plane] = self.need_refresh[plane] or flag
 
@@ -109,7 +115,7 @@ class Status(object):
         self.patient_weight = weight
 
     def reset_camera(self):
-        self.camera_origin = vec3(0.0, 0.0, 40.0)
+        self.camera_origin = vec3(0.0, 0.0, 5.0)
         self.camera_target = vec3(0.0, 0.0, 0.0)
         self.camera_update_lookat()
         self.view_radians = 3.141592 / 4.0

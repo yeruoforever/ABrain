@@ -1,5 +1,4 @@
 import sys
-import os
 from typing import *
 
 import glfw
@@ -219,8 +218,6 @@ class Render(object):
         glUniform1i(self.ptrs_3d["seg"], 5)
 
     def update_shader_plane(self):
-        # print("update shader")
-
         W, H = self.state.viewport[2], self.state.viewport[3]
         W, H = W * self.state.plane_scale, H * self.state.plane_scale
         glUniform2f(self.ptrs_plane["screen"], float(W), float(H))
@@ -241,10 +238,8 @@ class Render(object):
 
     def update_texture(self):
         if self.state.need_reload_file():
-            print("update texture")
             img, spacing, directions = get_img(self.state.input_file)
             seg = get_seg(self.state.input_file)
-            print(img.shape, spacing, directions)
             self.state.update_img_meta(spacing, img.shape, "CT")
             self.create_texture(img, seg)
             self.state.update_file_history()
@@ -267,8 +262,6 @@ class Render(object):
                 continue
             glBindFramebuffer(GL_FRAMEBUFFER, self.framebuffers[plane])
             glViewport(0, 0, self.state.viewport[2], self.state.viewport[3])
-            tid = glGetIntegerv(GL_TEXTURE_BINDING_2D)
-            print(f"plane :{plane}, texture :{tid}")
             if plane == PLANE_3D:
                 shader = self.shader_3d
                 with Program(shader):
@@ -321,7 +314,8 @@ class Render(object):
         self.prepare_opengl()
         if DEBUG:
             self.state.input_file = (
-                "/Users/yeruo/WorkSpace/CTCSF/5.0mm/img/20230102000345.nii.gz"
+                "/Users/yeruo/WorkSpace/CTCSF/1.25mm/img/20230109000675.nii.gz"
+                # "/Users/yeruo/WorkSpace/CTCSF/5.0mm/img/20230102000345.nii.gz"
                 # "/Users/yeruo/WorkSpace/3月颅脑CT及标记数据数据/3月颅脑导数据/标记数据/img/1.25mm/20230327007282.nii.gz"
             )
             self.update_texture()

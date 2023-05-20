@@ -4,6 +4,7 @@ from imgui.integrations.glfw import GlfwRenderer
 import glfw
 from tkinter import Tk
 import tkinter.filedialog as filedialog
+import glm
 
 from status import *
 
@@ -12,16 +13,26 @@ __all__ = ["GUI"]
 tk_root = Tk()
 tk_root.withdraw()
 
+DEBUG = False
 
-# debug
-import numpy as np
-import glm
+if DEBUG:
+    # debug
+    from debug import *
+
 
 MSG_BOX = 285
 
 
 def clamp(x, mi, mx):
     return min(max(mi, x), mx)
+
+
+def print3i(t: tuple):
+    return "%.0f, %.0f, %.0f" % (t[0], t[1], t[2])
+
+
+def print3f(t: tuple):
+    return "%.2f, %.2f, %.2f" % (t[0], t[1], t[2])
 
 
 class GUI(object):
@@ -128,6 +139,8 @@ class GUI(object):
         self.state.mouse_pos[0] = xpos
         self.state.mouse_pos[1] = ypos
         self.state.mouse_activate = self.mouse_location()
+        if self.state.mouse_activate == PLANE_UNKNOWN:
+            return
         if self.state.mouse_state[0]:
             if self.state.view_type == PlANE_ALL:
                 scale = 2
@@ -178,12 +191,24 @@ class GUI(object):
             self.state.key_status[glfw.KEY_LEFT_SHIFT]
             or self.state.key_status[glfw.KEY_RIGHT_SHIFT]
         ):
-            self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
-            self.state.plane_scale = min(self.state.plane_scale, 3)
-            self.state.plane_scale = max(self.state.plane_scale, 0.01)
-            self.state.set_refresh_plane()
+            if self.state.mouse_activate == PLANE_3D:
+                delta = self.state.view_radians - yoffset * 0.03
+                self.state.view_radians = clamp(delta, 3.1415 / 6, 3.1415 / 2)
+                self.state.check_and_set_refresh(PLANE_3D, True)
+            else:
+                self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
+                self.state.plane_scale = min(self.state.plane_scale, 0.8)
+                self.state.plane_scale = max(self.state.plane_scale, 0.01)
+                self.state.set_refresh_plane()
+        elif (
+            self.state.key_status[glfw.KEY_LEFT_CONTROL]
+            or self.state.key_status[glfw.KEY_RIGHT_CONTROL]
+        ):
+            if self.state.mouse_activate == PLANE_3D:
+                delta = yoffset * 0.0001 + self.state.ray_step
+                self.state.ray_step = clamp(delta, 0.0001, 0.03)
+                self.state.check_and_set_refresh(PLANE_3D, True)
         else:
-            self.state.check_and_set_refresh(self.state.mouse_activate, True)
             if self.state.mouse_activate == PLANE_CROSS:
                 delta = yoffset * 0.3 + self.state.plane_slice[2]
                 bound = self.state.img_region[2] / 2
@@ -196,6 +221,10 @@ class GUI(object):
                 delta = yoffset * 0.3 + self.state.plane_slice[0]
                 bound = self.state.img_region[0] / 2
                 self.state.plane_slice[0] = clamp(delta, -bound, bound)
+            elif self.state.mouse_activate == PLANE_3D:
+                delta = yoffset * 0.001 + self.state.ray_alpha
+                self.state.ray_alpha = clamp(delta, 0.0001, 1)
+            self.state.check_and_set_refresh(self.state.mouse_activate, True)
 
     def main_menu_bar(self):
         changed = False
@@ -217,18 +246,22 @@ class GUI(object):
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
             # | imgui.WINDOW_NO_MOVE,
         ):
-            t = self.state.frame_time_step() + 1e-4
-            msg = "%3.2f" % (1 / t)
-            imgui.text(
-                f"{self.state.patient_id}\t{self.state.patient_name}\t{self.state.patient_gender}\t{self.state.patient_age}"
-            )
+            imgui.columns(4)
+            imgui.text(f"{self.state.patient_id}")
+            imgui.next_column()
+            imgui.text(f"{self.state.patient_name}")
+            imgui.next_column()
+            imgui.text(f"{self.state.patient_gender}")
+            imgui.next_column()
+            imgui.text(f"{self.state.patient_age}岁")
+            imgui.columns(1)
+
             imgui.text(f"体重    \t:\t{self.state.patient_weight}")
             imgui.text(f"扫描区域\t:\t{self.state.img_body_range}")
             imgui.text(f"图像模态\t:\t{self.state.img_modalty}")
-            imgui.text(f"图像大小 (pixel):\t{self.state.img_shape}")
-            imgui.text(f"图像范围 (mm):\t{self.state.img_region}")
-            imgui.text(f"像素间距 (mm):\t{self.state.img_spacing}")
-            imgui.text(f"渲染帧率 (fps):\t{msg.rjust(10)}")
+            imgui.text(f"图像大小 (pixel):\t{print3i(self.state.img_shape)}")
+            imgui.text(f"图像范围 (mm):\t{print3i(self.state.img_region)}")
+            imgui.text(f"像素间距 (mm):\t{print3f(self.state.img_spacing)}")
 
     def camera_control(self):
         with imgui.begin(
@@ -238,22 +271,6 @@ class GUI(object):
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
             # | imgui.WINDOW_NO_MOVE,
         ):
-            # changed, self.state.view_near = imgui.slider_float(
-            #     "Near",
-            #     self.state.view_near,
-            #     min_value=-1000,
-            #     max_value=1000,
-            #     format="%.2f",
-            # )
-            # has_changed = has_changed or changed
-            # changed, self.state.view_far = imgui.slider_float(
-            #     "Far",
-            #     self.state.view_far,
-            #     min_value=-1000,
-            #     max_value=1000,
-            #     format="%.2f",
-            # )
-            # has_changed = has_changed or changed
             clicked, current = imgui.combo(
                 "",
                 self.state.view_type,
@@ -261,74 +278,21 @@ class GUI(object):
             )
             if clicked and current != self.state.view_type:
                 self.state.view_type = current
-            imgui.same_line(spacing=1)
-            if imgui.button("重设3D相机"):
+            if imgui.button("重置透视"):
                 self.state.reset_camera()
                 self.state.check_and_set_refresh(PLANE_3D, True)
-            changed, self.state.view_radians = imgui.slider_angle(
-                "视野大小", self.state.view_radians, 20.0, 160.0
-            )
-            self.state.check_and_set_refresh(PLANE_3D, changed)
+            imgui.same_line(spacing=2)
 
-            for i, axis in enumerate(["X", "Y", "Z"]):
-                changed, self.state.camera_origin[i] = imgui.slider_float(
-                    f"视点位置{axis}",
-                    self.state.camera_origin[i],
-                    min_value=-1000,
-                    max_value=1000,
-                    format="%.2f",
-                )
-                if changed:
-                    self.state.camera_update_lookat()
-                    self.state.check_and_set_refresh(PLANE_3D, True)
+            if imgui.button("切片居中"):
+                self.state.reset_focus()
+                self.state.set_refresh_plane()
+            imgui.same_line(spacing=2)
 
-            L = max(*self.state.img_region) / 2
-            changed, values = imgui.slider_float3("焦点", *self.state.plane_focus, -L, L)
-            if changed:
-                self.state.plane_focus[0] = values[0]
-                self.state.plane_focus[1] = values[1]
-                self.state.plane_focus[2] = values[2]
+            if imgui.button("重置三视"):
+                self.state.reset_camera()
+                self.state.reset_slice()
                 self.state.set_refresh_plane()
 
-            for i, axis in enumerate(["右", "前", "上"]):
-                changed, self.state.plane_slice[i] = imgui.slider_float(
-                    f"切片位置({axis})",
-                    self.state.plane_slice[i],
-                    min_value=-self.state.img_region[i] / 2,
-                    max_value=self.state.img_region[i] / 2,
-                    format="%.2f",
-                )
-                if axis == "右":
-                    plane = PLANE_SAGITTAL
-                elif axis == "前":
-                    plane = PLANE_CORONAL
-                else:
-                    plane = PLANE_CROSS
-
-                self.state.check_and_set_refresh(plane, changed)
-
-            changed, self.state.plane_scale = imgui.slider_float(
-                "缩放",
-                self.state.plane_scale,
-                0.0,
-                1.5,
-            )
-            if changed:
-                self.state.set_refresh_plane()
-            changed, self.state.ray_step = imgui.slider_float(
-                "光线步长", self.state.ray_step, 0.001, 0.01, format="%.4f"
-            )
-            self.state.check_and_set_refresh(PLANE_3D, changed)
-            changed, self.state.ray_alpha = imgui.slider_float(
-                "透明度",
-                self.state.ray_alpha,
-                0.0001,
-                1.0,
-            )
-            self.state.check_and_set_refresh(PLANE_3D, changed)
-
-    def voxel_setting(self):
-        with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
             changed, self.state.color_overlap = imgui.slider_float(
                 "标注透明度",
                 self.state.color_overlap,
@@ -337,6 +301,17 @@ class GUI(object):
             )
             if changed:
                 self.state.set_refresh_all()
+            changed, self.state.ray_alpha = imgui.slider_float(
+                "组织透明度",
+                self.state.ray_alpha,
+                0.0001,
+                1.0,
+            )
+            self.state.check_and_set_refresh(PLANE_3D, changed)
+            changed, self.state.ray_step = imgui.slider_float(
+                "光线步长", self.state.ray_step, 0.001, 0.01, format="%.4f"
+            )
+            self.state.check_and_set_refresh(PLANE_3D, changed)
             changed, values = imgui.slider_float2(
                 "体素值域",
                 self.state.voxel_min,
@@ -349,113 +324,38 @@ class GUI(object):
                 self.state.voxel_max = values[1]
                 self.state.set_refresh_all()
 
+    def segmentation(self):
+        with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
             changed, self.state.color_target_1 = imgui.color_edit3(
-                "侧脑室", *self.state.color_target_1
+                "双侧脑室", *self.state.color_target_1
             )
             if changed:
                 self.state.set_refresh_all()
             changed, self.state.color_target_2 = imgui.color_edit3(
-                "三脑室", *self.state.color_target_2
+                "第三脑室", *self.state.color_target_2
             )
             if changed:
                 self.state.set_refresh_all()
+            imgui.progress_bar(0.7, (self.MSG_BOX - 123, 20))
+            imgui.same_line(spacing=1)
+            imgui.text("处理成功")
+            imgui.button("自动测量")
+            imgui.same_line(spacing=3)
+            imgui.button("保存结果")
+            imgui.same_line(spacing=3)
+            imgui.button("加载")
 
-    def image_color_setting(self):
+    def measuring_result(self):
         with imgui.begin(
-            "Camera",
+            "result",
             flags=imgui.WINDOW_NO_TITLE_BAR
-            # | imgui.WINDOW_NO_RESIZE
+            | imgui.WINDOW_NO_BACKGROUND
+            | imgui.WINDOW_NO_RESIZE
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
-            # | imgui.WINDOW_NO_MOVE,
+            | imgui.WINDOW_NO_MOVE,
         ):
             has_changed = False
-
-    def test_plane_coord(self, pos_screen, screen, focus, slice, range):
-        range = range + glm.vec3(0.000001)
-        cro = (2 * focus.xy + screen * pos_screen) / (2 * range.xy) + 0.5
-        cro = glm.vec3(cro.x, cro.y, slice.z / range.z + 0.5)
-        con = (2 * focus.xz + screen * pos_screen) / (2 * range.xz) + 0.5
-        con = glm.vec3(con.x, slice.y / range.y + 0.5, con.y)
-        sag = (2 * focus.yz + screen * pos_screen) / (2 * range.yz) + 0.5
-        sag = glm.vec3(slice.x / range.x + 0.5, sag.x, sag.y)
-        imgui.text(f"横断：{cro}")
-        imgui.text(f"冠状：{con}")
-        imgui.text(f"矢状：{sag}")
-
-    def debug_plane(self):
-        with imgui.begin("plane"):
-            W, H = self.state.viewport[2], self.state.viewport[3]
-            ndc = [
-                (self.state.mouse_pos[0] / W) * 2 - 1,
-                1 - (self.state.mouse_pos[1] / H) * 2,
-            ]
-            imgui.text(f"标准屏幕坐标:  {ndc}")
-            self.test_plane_coord(
-                glm.vec2(*ndc),
-                glm.vec2(W * self.state.plane_scale, H * self.state.plane_scale),
-                glm.vec3(*self.state.plane_focus),
-                glm.vec3(*self.state.plane_slice),
-                glm.vec3(*self.state.img_region),
-            )
-        pass
-
-    def debug_3d(self):
-        with imgui.begin("vertex"):
-            W, H = self.state.viewport[2], self.state.viewport[3]
-            V = self.state.W2V
-            Vi = self.state.V2W
-            aspect = W / H
-            ndc = [
-                (self.state.mouse_pos[0] / W) * 2 - 1,
-                1 - (self.state.mouse_pos[1] / H) * 2,
-            ]
-            imgui.text(f"标准屏幕坐标:  {ndc}")
-            X = aspect * ndc[0]
-            Y = ndc[1]
-            dis = glm.tan(self.state.view_radians / 2)
-            ray = -Vi * glm.vec4(X, Y, -1 / dis, 1.0)
-            ray = glm.normalize(ray.xyz)
-            imgui.text(f"屏幕大小: {self.state.screen_size}")
-            imgui.text(f"视口大小:  {self.state.viewport}")
-            imgui.text(f"纵横比:  {aspect}")
-            imgui.text(f"视野宽度:  {self.state.view_radians*180/np.pi}")
-            # imgui.text(f"Plane:  Near({self.state.view_near})")
-            # imgui.text(f"Plane:  Far({self.state.view_far})")
-            imgui.text(f"相机位置:  {self.state.camera_origin}")
-            imgui.text(f"相机视野坐标:  {V*glm.vec3(*self.state.camera_origin)}")
-            imgui.text(f"世界原点视野坐标:  {V*glm.vec3(0)}")
-            imgui.text(f"转换矩阵（世界到视野）:\n{V}")
-            imgui.text(f"转换矩阵（视野到世界）:\n{Vi}")
-            imgui.text(f"光线方向: {ray}")
-            ray_color = ray * 0.5 + 0.5
-            imgui.color_edit3("光线", ray_color.x, ray_color.y, ray_color.z)
-        with imgui.begin("fragment"):
-            imgui.text(f"光线步长:  {self.state.ray_step}")
-            imgui.text(f"光线不透明度:  {self.state.ray_alpha}")
-            pix_min, pix_max = self.state.voxel_min, self.state.voxel_max
-            pix_window = pix_max - pix_min
-            imgui.text(f"体素亮度范围:  {pix_min,pix_max}")
-            imgui.text(f"体素亮度窗口大小:  {pix_window}")
-            imgui.text(f"转换矩阵（模型到世界）\n{self.state.M2W}")
-            imgui.text(f"转换矩阵（世界到模型）\n{self.state.W2M}")
-            bbox = self.state.cube_bounding()
-            eye = glm.vec3(*self.state.camera_origin)
-            imgui.text(f"图像边界1:  {bbox[0]}")
-            imgui.text(f"图像边界2:  {bbox[1]}")
-            slab = is_insersect(eye, ray, bbox[0], bbox[1])
-            W2M = self.state.W2M
-            imgui.text(f"纹理边界1: {W2M*bbox[0]}")
-            imgui.text(f"纹理边界2: {W2M*bbox[1]}")
-            imgui.text(f"纹理边界3： {W2M*glm.vec4(0)}")
-            flag, t_min, t_max = slab
-            step_min = t_min * ray
-            step_max = t_max * ray
-            imgui.text(f"光线起止:  {t_max-t_min}")
-            imgui.text(f"光线与模型相交:  {flag}")
-            imgui.text(f"光线起点t:  {t_min}")
-            imgui.text(f"光线终点t:  {t_max}")
-            imgui.text(f"光线起点坐标:  {eye+step_min}")
-            imgui.text(f"光线终点坐标:  {eye+step_max}")
+            imgui.text("侧脑室脑脊液： 54.3 mL")
 
     def draw_and_update_status(self):
         with imgui.font(self.font_characters):
@@ -466,7 +366,7 @@ class GUI(object):
                 20,
             )
             self.patient_message()
-            imgui.set_next_window_size(MSG_BOX, 295)
+            imgui.set_next_window_size(MSG_BOX, 150)
             imgui.set_next_window_position(
                 self.state.viewport[2] / self.monitor_scale[0],
                 20 + 150,
@@ -475,25 +375,15 @@ class GUI(object):
             imgui.set_next_window_size(MSG_BOX, 105)
             imgui.set_next_window_position(
                 self.state.viewport[2] / self.monitor_scale[0],
-                20 + 150 + 295,
+                20 + 150 + 150,
             )
-            self.voxel_setting()
-            self.image_color_setting()
-            self.debug_plane()
-            self.debug_3d()
-
-
-def print_mat4(mat):
-    pass
-
-
-def is_insersect(origin, light, cube_a, cube_b):
-    a = (cube_a - origin) / light
-    b = (cube_b - origin) / light
-
-    t_min = max(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z))
-    t_max = min(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z))
-
-    flag = t_min >= 0 and t_min <= t_max
-
-    return flag, t_min, t_max
+            self.segmentation()
+            imgui.set_next_window_size(160, 30)
+            imgui.set_next_window_position(
+                self.state.viewport[2] / self.monitor_scale[0] - 160,
+                self.state.viewport[3] / self.monitor_scale[1] - 45,
+            )
+            self.measuring_result()
+            if DEBUG:
+                debug_plane(self)
+                debug_3d(self)
