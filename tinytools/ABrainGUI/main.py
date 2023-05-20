@@ -302,16 +302,17 @@ class Render(object):
         glClear(GL_COLOR_BUFFER_BIT)
         if not self.state.file_opened:
             return
+        w = self.state.viewport[2]
+        h = self.state.viewport[3]
         if self.state.view_type == PlANE_ALL:
             for i, tp in enumerate(
                 [PLANE_CORONAL, PLANE_3D, PLANE_CROSS, PLANE_SAGITTAL]
             ):
-                w, h = self.state.viewport[2] // 2, self.state.viewport[3] // 2
                 a, b = i % 2, i // 2
-                glViewport(a * w, b * h, w, h)
+                glViewport(a * w // 2, b * h // 2, w // 2, h // 2)
                 self.draw_panel(tp)
         else:
-            glViewport(0, 0, self.state.viewport[2], self.state.viewport[3])
+            glViewport(0, 0, w, h)
             self.draw_panel(self.state.view_type)
 
     def render_loop(self):

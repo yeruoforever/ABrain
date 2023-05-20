@@ -30,9 +30,15 @@ class GUI(object):
         imgui.create_context()
         self.impl = GlfwRenderer(window)
         self.state = status
-        self.mouse_pos_last = glm.vec2(0.0, 0.0)
-        self.monitor_scale = glfw.get_monitor_content_scale(glfw.get_primary_monitor())
         self.MSG_BOX = MSG_BOX
+        self.mouse_pos_last = glm.vec2(0.0, 0.0)
+        screen = glfw.get_primary_monitor()
+        self.monitor_scale = glfw.get_monitor_content_scale(screen)
+        w, h = glfw.get_window_size(self.window)
+        self.state.screen_size[0] = w
+        self.state.screen_size[1] = h
+        self.state.viewport[2] = (w - self.MSG_BOX) * self.monitor_scale[0]
+        self.state.viewport[3] = h * self.monitor_scale[1]
         glfw.set_mouse_button_callback(window, self.mouse_viewport_click)
         glfw.set_cursor_pos_callback(window, self.mouse_viewport_move)
         glfw.set_framebuffer_size_callback(window, self.resize_window)
