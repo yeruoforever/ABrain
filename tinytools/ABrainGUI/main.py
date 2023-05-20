@@ -167,10 +167,8 @@ class Render(object):
         W, H = self.state.viewport[2], self.state.viewport[3]
         self.framebuffers = glGenFramebuffers(PlANE_ALL)
         self.textures = glGenTextures(PlANE_ALL)
-
-        for plane, (fid, tid) in enumerate(zip(self.framebuffers, self.textures)):
+        for fid, tid in zip(self.framebuffers, self.textures):
             glBindFramebuffer(GL_FRAMEBUFFER, fid)
-            glActiveTexture(GL_TEXTURE0 + plane)
             glBindTexture(GL_TEXTURE_2D, tid)
             glTexImage2D(
                 GL_TEXTURE_2D, 0, GL_RGB, W, H, 0, GL_RGB, GL_UNSIGNED_BYTE, None
@@ -180,66 +178,66 @@ class Render(object):
             glFramebufferTexture2D(
                 GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tid, 0
             )
-        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        for i, tid in enumerate(self.textures):
+            with Texture(GL_TEXTURE0 + i):
+                glBindTexture(GL_TEXTURE_2D, tid)
         self.state.set_refresh_all()
 
-    def update_shader(self):
+    def update_shader_3d(self):
+        glUniform2f(
+            self.ptrs_3d["screen"],
+            float(self.state.viewport[2]),
+            float(self.state.viewport[3]),
+        )
+        glUniform1f(self.ptrs_3d["fov"], self.state.view_radians)
+        glUniform3f(self.ptrs_3d["eye"], *self.state.camera_origin)
+        view_i = self.state.V2W
+        glUniformMatrix4fv(
+            self.ptrs_3d["V2W"],
+            1,
+            GL_FALSE,
+            glm.value_ptr(view_i),
+        )
+        glUniform1f(self.ptrs_3d["step"], self.state.ray_step)
+        glUniform1f(self.ptrs_3d["alpha"], self.state.ray_alpha)
+        glUniform1f(self.ptrs_3d["vox_min"], self.state.voxel_min)
+        glUniform1f(self.ptrs_3d["vox_max"], self.state.voxel_max)
+        bbox = self.state.cube_bounding()
+        glUniform3fv(self.ptrs_3d["cube_a"], 1, glm.value_ptr(bbox[0]))
+        glUniform3fv(self.ptrs_3d["cube_b"], 1, glm.value_ptr(bbox[1]))
+        # only need load once
+        w2m = self.state.W2M
+        glUniformMatrix4fv(self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(w2m))
+
+        glUniform3f(self.ptrs_3d["color_bg"], *self.state.color_background)
+        glUniform3f(self.ptrs_3d["color_1"], *self.state.color_target_1)
+        glUniform3f(self.ptrs_3d["color_2"], *self.state.color_target_2)
+        glUniform1f(self.ptrs_3d["mix_rate"], self.state.color_overlap)
+
+        glUniform1i(self.ptrs_3d["img"], 4)
+        glUniform1i(self.ptrs_3d["seg"], 5)
+
+    def update_shader_plane(self):
         # print("update shader")
-        with Program(self.shader_plane):
-            W, H = self.state.viewport[2], self.state.viewport[3]
-            W, H = W * self.state.plane_scale, H * self.state.plane_scale
-            glUniform2f(self.ptrs_plane["screen"], float(W), float(H))
-            glUniform3f(self.ptrs_plane["focus"], *self.state.plane_focus)
-            glUniform3f(self.ptrs_plane["slice"], *self.state.plane_slice)
-            glUniform3f(self.ptrs_plane["range"], *self.state.img_region)
-            glUniform2f(
-                self.ptrs_plane["hu_range"], self.state.voxel_min, self.state.voxel_max
-            )
 
-            glUniform3f(self.ptrs_plane["color_bg"], *self.state.color_background)
-            glUniform3f(self.ptrs_plane["color_1"], *self.state.color_target_1)
-            glUniform3f(self.ptrs_plane["color_2"], *self.state.color_target_2)
-            glUniform1f(self.ptrs_plane["mix_rate"], self.state.color_overlap)
+        W, H = self.state.viewport[2], self.state.viewport[3]
+        W, H = W * self.state.plane_scale, H * self.state.plane_scale
+        glUniform2f(self.ptrs_plane["screen"], float(W), float(H))
+        glUniform3f(self.ptrs_plane["focus"], *self.state.plane_focus)
+        glUniform3f(self.ptrs_plane["slice"], *self.state.plane_slice)
+        glUniform3f(self.ptrs_plane["range"], *self.state.img_region)
+        glUniform2f(
+            self.ptrs_plane["hu_range"], self.state.voxel_min, self.state.voxel_max
+        )
 
-            glUniform1i(self.ptrs_plane["img"], 4)
-            glUniform1i(self.ptrs_plane["seg"], 5)
+        glUniform3f(self.ptrs_plane["color_bg"], *self.state.color_background)
+        glUniform3f(self.ptrs_plane["color_1"], *self.state.color_target_1)
+        glUniform3f(self.ptrs_plane["color_2"], *self.state.color_target_2)
+        glUniform1f(self.ptrs_plane["mix_rate"], self.state.color_overlap)
 
-            # IMG,SEG
-
-        with Program(self.shader_3d):
-            glUniform2f(
-                self.ptrs_3d["screen"],
-                float(self.state.viewport[2]),
-                float(self.state.viewport[3]),
-            )
-            # glUniform1d()
-            glUniform1f(self.ptrs_3d["fov"], self.state.view_radians)
-            glUniform3f(self.ptrs_3d["eye"], *self.state.camera_origin)
-            view_i = self.state.V2W
-            glUniformMatrix4fv(
-                self.ptrs_3d["V2W"],
-                1,
-                GL_FALSE,
-                glm.value_ptr(view_i),
-            )
-            glUniform1f(self.ptrs_3d["step"], self.state.ray_step)
-            glUniform1f(self.ptrs_3d["alpha"], self.state.ray_alpha)
-            glUniform1f(self.ptrs_3d["vox_min"], self.state.voxel_min)
-            glUniform1f(self.ptrs_3d["vox_max"], self.state.voxel_max)
-            bbox = self.state.cube_bounding()
-            glUniform3fv(self.ptrs_3d["cube_a"], 1, glm.value_ptr(bbox[0]))
-            glUniform3fv(self.ptrs_3d["cube_b"], 1, glm.value_ptr(bbox[1]))
-            # only need load once
-            w2m = self.state.W2M
-            glUniformMatrix4fv(self.ptrs_3d["W2M"], 1, GL_FALSE, glm.value_ptr(w2m))
-
-            glUniform3f(self.ptrs_3d["color_bg"], *self.state.color_background)
-            glUniform3f(self.ptrs_3d["color_1"], *self.state.color_target_1)
-            glUniform3f(self.ptrs_3d["color_2"], *self.state.color_target_2)
-            glUniform1f(self.ptrs_3d["mix_rate"], self.state.color_overlap)
-
-            glUniform1i(self.ptrs_3d["img"], 4)
-            glUniform1i(self.ptrs_3d["seg"], 5)
+        glUniform1i(self.ptrs_plane["img"], 4)
+        glUniform1i(self.ptrs_plane["seg"], 5)
 
     def update_texture(self):
         if self.state.need_reload_file():
@@ -255,40 +253,37 @@ class Render(object):
 
     def update_screen_size(self):
         if self.state.flag_screen_size:
-            print("update resize screen")
-            glViewport(*self.state.viewport)
-            print(self.state.viewport)
             self.prepare_framebuff()
             self.state.flag_screen_size = False
 
     def check_and_update(self):
         self.update_texture()
         self.update_screen_size()
-        self.update_shader()
         self.refresh()
 
     def refresh(self):
         for plane, refresh in enumerate(self.state.need_refresh):
             if not refresh:
                 continue
-            print(f"refresh {plane}-->{self.framebuffers[plane]}")
             glBindFramebuffer(GL_FRAMEBUFFER, self.framebuffers[plane])
             glViewport(0, 0, self.state.viewport[2], self.state.viewport[3])
+            tid = glGetIntegerv(GL_TEXTURE_BINDING_2D)
+            print(f"plane :{plane}, texture :{tid}")
             if plane == PLANE_3D:
                 shader = self.shader_3d
                 with Program(shader):
+                    self.update_shader_3d()
                     with VAO(self.vao):
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
             else:
                 shader = self.shader_plane
                 with Program(shader):
+                    self.update_shader_plane()
                     glUniform1i(self.ptrs_plane["plane"], plane)
                     with VAO(self.vao):
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
-
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
             self.state.need_refresh[plane] = False
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
     def draw_panel(self, plane_type):
         with Program(self.shader_foreground):

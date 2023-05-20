@@ -32,8 +32,7 @@ class GUI(object):
         self.state = status
         self.MSG_BOX = MSG_BOX
         self.mouse_pos_last = glm.vec2(0.0, 0.0)
-        screen = glfw.get_primary_monitor()
-        self.monitor_scale = glfw.get_monitor_content_scale(screen)
+        self.monitor_scale = glfw.get_window_content_scale(window)
         w, h = glfw.get_window_size(self.window)
         self.state.screen_size[0] = w
         self.state.screen_size[1] = h
@@ -44,9 +43,7 @@ class GUI(object):
         glfw.set_framebuffer_size_callback(window, self.resize_window)
         glfw.set_scroll_callback(window, self.mouse_scroll)
         glfw.set_key_callback(window, self.key_tracking)
-        win_w, win_h = glfw.get_window_size(window)
-        fb_w, fb_h = glfw.get_framebuffer_size(window)
-        font_scaling_factor = max(float(fb_w) / win_w, float(fb_h) / win_h)
+        font_scaling_factor = max(*self.monitor_scale)
         self.io = imgui.get_io()
         self.font_characters = self.io.fonts.add_font_from_file_ttf(
             os.path.join(os.path.dirname(__file__), "fonts", "楷体_GB2312.ttf"),
@@ -67,11 +64,10 @@ class GUI(object):
         self.impl.render(imgui.get_draw_data())
 
     def resize_window(self, window, width, height):
-        screen = glfw.get_primary_monitor()
-        sw, sh = glfw.get_monitor_content_scale(screen)
+        self.monitor_scale = glfw.get_window_content_scale(window)
         self.state.screen_size[0] = width
         self.state.screen_size[1] = height
-        self.state.viewport[2] = width - self.MSG_BOX * sw
+        self.state.viewport[2] = width - self.MSG_BOX * self.monitor_scale[0]
         self.state.viewport[3] = height
         self.state.flag_screen_size = True
 
