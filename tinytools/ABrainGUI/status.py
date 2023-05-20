@@ -17,11 +17,11 @@ __all__ = [
 ]
 
 MAX_HISTORY_LENGTH = 6
-PlANE_ALL = 0
-PLANE_CROSS = 1
-PLANE_CORONAL = 2
-PLANE_SAGITTAL = 3
-PLANE_3D = 4
+PLANE_CROSS = 0
+PLANE_CORONAL = 1
+PLANE_SAGITTAL = 2
+PLANE_3D = 3
+PlANE_ALL = 4
 PLANE_UNKNOWN = -1
 
 
@@ -31,9 +31,12 @@ class Status(object):
         self.viewport = ivec4(0, 0, 995, 720)
         self.view_type = PlANE_ALL
 
+        self.flag_screen_size = False
+        self.need_refresh = [True] * PlANE_ALL
+
         self.mouse_pos = ivec2(0, 0)
         self.mouse_state = bvec2(False, False)
-        self.mouse_activate = PlANE_ALL
+        self.mouse_activate = PLANE_UNKNOWN
         self.mouse_scroll_speed = 0.05
 
         self.key_status = [False] * 1024
@@ -77,6 +80,17 @@ class Status(object):
         self.patient_weight = "75 kg"
 
         self.frame_timestamp = time.time()
+
+    def set_refresh_all(self):
+        for i in range(PlANE_ALL):
+            self.need_refresh[i] = True
+
+    def set_refresh_plane(self):
+        for i in range(PlANE_ALL - 1):
+            self.need_refresh[i] = True
+
+    def check_and_set_refresh(self, plane, flag):
+        self.need_refresh[plane] = self.need_refresh[plane] or flag
 
     def update_img_meta(self, spacing, shape, modalty):
         self.img_spacing = vec3(*spacing)

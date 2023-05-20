@@ -31,6 +31,8 @@ class GUI(object):
         self.impl = GlfwRenderer(window)
         self.state = status
         self.mouse_pos_last = glm.vec2(0.0, 0.0)
+        self.monitor_scale = glfw.get_monitor_content_scale(glfw.get_primary_monitor())
+        self.MSG_BOX = MSG_BOX
         glfw.set_mouse_button_callback(window, self.mouse_viewport_click)
         glfw.set_cursor_pos_callback(window, self.mouse_viewport_move)
         glfw.set_framebuffer_size_callback(window, self.resize_window)
@@ -59,10 +61,13 @@ class GUI(object):
         self.impl.render(imgui.get_draw_data())
 
     def resize_window(self, window, width, height):
+        screen = glfw.get_primary_monitor()
+        sw, sh = glfw.get_monitor_content_scale(screen)
         self.state.screen_size[0] = width
         self.state.screen_size[1] = height
-        self.state.viewport[2] = width - MSG_BOX
+        self.state.viewport[2] = width - self.MSG_BOX * sw
         self.state.viewport[3] = height
+        self.state.flag_screen_size = True
 
     def key_tracking(self, window, key, scancode, action, mods):
         if action == glfw.PRESS or action == glfw.REPEAT:
@@ -78,6 +83,8 @@ class GUI(object):
 
     def mouse_location(self):
         x, y = self.state.mouse_pos
+        x *= self.monitor_scale[0]
+        y *= self.monitor_scale[1]
         y = self.state.viewport[3] - y
         W, H = self.state.viewport[2], self.state.viewport[3]
         if self.state.view_type == PlANE_ALL:
@@ -100,6 +107,8 @@ class GUI(object):
             else:
                 return PLANE_UNKNOWN
 
+        return PLANE_UNKNOWN
+
     def mouse_viewport_click(self, window, button, action, mode):
         if button == glfw.MOUSE_BUTTON_LEFT:
             if action == glfw.PRESS:
@@ -117,30 +126,36 @@ class GUI(object):
         self.state.mouse_pos[0] = xpos
         self.state.mouse_pos[1] = ypos
         self.state.mouse_activate = self.mouse_location()
-
-        if self.state.view_type == PlANE_ALL:
-            scale = 2
-        else:
-            scale = 1
         if self.state.mouse_state[0]:
+            if self.state.view_type == PlANE_ALL:
+                scale = 2
+            else:
+                scale = 1
             delta_x = xpos - self.mouse_pos_last[0]
             delta_y = ypos - self.mouse_pos_last[1]
+            if self.state.mouse_activate == PLANE_UNKNOWN:
+                return
 
             if self.state.mouse_activate == PLANE_CROSS:
                 delta_x *= self.state.plane_scale * scale
                 delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[0] -= delta_x
                 self.state.plane_focus[1] += delta_y
+                self.state.set_refresh_plane()
             elif self.state.mouse_activate == PLANE_CORONAL:
                 delta_x *= self.state.plane_scale * scale
                 delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[0] -= delta_x
                 self.state.plane_focus[2] += delta_y
+                self.state.set_refresh_plane()
+
             elif self.state.mouse_activate == PLANE_SAGITTAL:
                 delta_x *= self.state.plane_scale * scale
                 delta_y *= self.state.plane_scale * scale
                 self.state.plane_focus[1] -= delta_x
                 self.state.plane_focus[2] += delta_y
+                self.state.set_refresh_plane()
+
             elif self.state.mouse_activate == PLANE_3D:
                 mat = self.state.camera_lookat
                 rx = glm.rotate(delta_x * 0.03, glm.row(mat, 1).xyz)
@@ -149,11 +164,14 @@ class GUI(object):
                 self.state.camera_up = r * self.state.camera_up
                 self.state.camera_origin = r * self.state.camera_origin
                 self.state.camera_update_lookat()
+                self.state.check_and_set_refresh(PLANE_3D, True)
 
             self.mouse_pos_last[0] = xpos
             self.mouse_pos_last[1] = ypos
 
     def mouse_scroll(self, window, xoffset, yoffset):
+        if self.state.mouse_activate == PLANE_UNKNOWN:
+            return
         if (
             self.state.key_status[glfw.KEY_LEFT_SHIFT]
             or self.state.key_status[glfw.KEY_RIGHT_SHIFT]
@@ -161,7 +179,9 @@ class GUI(object):
             self.state.plane_scale += self.state.mouse_scroll_speed * yoffset
             self.state.plane_scale = min(self.state.plane_scale, 3)
             self.state.plane_scale = max(self.state.plane_scale, 0.01)
+            self.state.set_refresh_plane()
         else:
+            self.state.check_and_set_refresh(self.state.mouse_activate, True)
             if self.state.mouse_activate == PLANE_CROSS:
                 delta = yoffset * 0.3 + self.state.plane_slice[2]
                 bound = self.state.img_region[2] / 2
@@ -216,8 +236,6 @@ class GUI(object):
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
             # | imgui.WINDOW_NO_MOVE,
         ):
-            has_changed = False
-
             # changed, self.state.view_near = imgui.slider_float(
             #     "Near",
             #     self.state.view_near,
@@ -237,17 +255,18 @@ class GUI(object):
             clicked, current = imgui.combo(
                 "",
                 self.state.view_type,
-                ["速览", "横断面", "冠状面", "矢状面", "三维"],
+                ["横断面", "冠状面", "矢状面", "三维", "速览"],
             )
             if clicked and current != self.state.view_type:
                 self.state.view_type = current
             imgui.same_line(spacing=1)
             if imgui.button("重设3D相机"):
                 self.state.reset_camera()
+                self.state.check_and_set_refresh(PLANE_3D, True)
             changed, self.state.view_radians = imgui.slider_angle(
                 "视野大小", self.state.view_radians, 20.0, 160.0
             )
-            has_changed = has_changed or changed
+            self.state.check_and_set_refresh(PLANE_3D, changed)
 
             for i, axis in enumerate(["X", "Y", "Z"]):
                 changed, self.state.camera_origin[i] = imgui.slider_float(
@@ -259,7 +278,7 @@ class GUI(object):
                 )
                 if changed:
                     self.state.camera_update_lookat()
-                has_changed = has_changed or changed
+                    self.state.check_and_set_refresh(PLANE_3D, True)
 
             L = max(*self.state.img_region) / 2
             changed, values = imgui.slider_float3("焦点", *self.state.plane_focus, -L, L)
@@ -267,6 +286,7 @@ class GUI(object):
                 self.state.plane_focus[0] = values[0]
                 self.state.plane_focus[1] = values[1]
                 self.state.plane_focus[2] = values[2]
+                self.state.set_refresh_plane()
 
             for i, axis in enumerate(["右", "前", "上"]):
                 changed, self.state.plane_slice[i] = imgui.slider_float(
@@ -276,32 +296,45 @@ class GUI(object):
                     max_value=self.state.img_region[i] / 2,
                     format="%.2f",
                 )
-                has_changed = has_changed or changed
+                if axis == "右":
+                    plane = PLANE_SAGITTAL
+                elif axis == "前":
+                    plane = PLANE_CORONAL
+                else:
+                    plane = PLANE_CROSS
+
+                self.state.check_and_set_refresh(plane, changed)
+
             changed, self.state.plane_scale = imgui.slider_float(
                 "缩放",
                 self.state.plane_scale,
                 0.0,
                 1.5,
             )
+            if changed:
+                self.state.set_refresh_plane()
             changed, self.state.ray_step = imgui.slider_float(
                 "光线步长", self.state.ray_step, 0.001, 0.01, format="%.4f"
             )
+            self.state.check_and_set_refresh(PLANE_3D, changed)
             changed, self.state.ray_alpha = imgui.slider_float(
                 "透明度",
                 self.state.ray_alpha,
                 0.0001,
                 1.0,
             )
+            self.state.check_and_set_refresh(PLANE_3D, changed)
 
     def voxel_setting(self):
         with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
-            has_changed = False
             changed, self.state.color_overlap = imgui.slider_float(
                 "标注透明度",
                 self.state.color_overlap,
                 0.0,
                 1.0,
             )
+            if changed:
+                self.state.set_refresh_all()
             changed, values = imgui.slider_float2(
                 "体素值域",
                 self.state.voxel_min,
@@ -312,13 +345,18 @@ class GUI(object):
             if changed:
                 self.state.voxel_min = values[0]
                 self.state.voxel_max = values[1]
+                self.state.set_refresh_all()
 
             changed, self.state.color_target_1 = imgui.color_edit3(
                 "侧脑室", *self.state.color_target_1
             )
+            if changed:
+                self.state.set_refresh_all()
             changed, self.state.color_target_2 = imgui.color_edit3(
                 "三脑室", *self.state.color_target_2
             )
+            if changed:
+                self.state.set_refresh_all()
 
     def image_color_setting(self):
         with imgui.begin(
@@ -422,19 +460,19 @@ class GUI(object):
             self.main_menu_bar()
             imgui.set_next_window_size(MSG_BOX, 150)
             imgui.set_next_window_position(
-                self.state.viewport[2],
+                self.state.viewport[2] / self.monitor_scale[0],
                 20,
             )
             self.patient_message()
             imgui.set_next_window_size(MSG_BOX, 295)
             imgui.set_next_window_position(
-                self.state.viewport[2],
+                self.state.viewport[2] / self.monitor_scale[0],
                 20 + 150,
             )
             self.camera_control()
             imgui.set_next_window_size(MSG_BOX, 105)
             imgui.set_next_window_position(
-                self.state.viewport[2],
+                self.state.viewport[2] / self.monitor_scale[0],
                 20 + 150 + 295,
             )
             self.voxel_setting()

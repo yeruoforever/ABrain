@@ -15,6 +15,14 @@ from neuron import *
 DEBUG = True
 
 
+TEXTURE_CROSS = GL_TEXTURE0 + PLANE_CROSS  # 0
+TEXTURE_CORONAL = GL_TEXTURE0 + PLANE_CORONAL  # 1
+TEXTURE_SAGITTAL = GL_TEXTURE0 + PLANE_SAGITTAL  # 2
+TEXTURE_3D = GL_TEXTURE0 + PLANE_3D  # 3
+TEXTURE_IMG = GL_TEXTURE4  # 4
+TEXTURE_SEG = GL_TEXTURE5  # 5
+
+
 class Render(object):
     def __init__(self) -> None:
         self.init_status()
@@ -37,6 +45,8 @@ class Render(object):
     def create_shader(self):
         self.shader_plane = load_shader_from_text("plane")
         self.shader_3d = load_shader_from_text("3d")
+        self.shader_foreground = load_shader_from_text("page")
+
         symbols = [
             "plane",
             "screen",
@@ -72,7 +82,7 @@ class Render(object):
             "mix_rate",
         ]
         self.ptrs_3d = shader_ptrs(self.shader_3d, symbols)
-        print(self.ptrs_plane, self.ptrs_3d)
+        self.ptrs_foreground = shader_ptrs(self.shader_foreground, ["sense"])
 
     def create_buffer(self):
         vertices = np.array(
@@ -105,7 +115,7 @@ class Render(object):
             0,
             GL_RED,
             GL_FLOAT,
-            img.ctypes.data_as(GLvoidp)
+            img.ctypes.data_as(GLvoidp),
         )
         # glGenerateMipmap(GL_TEXTURE_3D)
 
@@ -122,10 +132,10 @@ class Render(object):
                 glDeleteTextures(1, self.texture_seg)
             self.texture_img = glGenTextures(1)
             self.texture_seg = glGenTextures(1)
-            with Texture(GL_TEXTURE0):
+            with Texture(TEXTURE_IMG):
                 glBindTexture(GL_TEXTURE_3D, self.texture_img)
                 self.load_volume_texture(img)
-            with Texture(GL_TEXTURE1):
+            with Texture(TEXTURE_SEG):
                 glBindTexture(GL_TEXTURE_3D, self.texture_seg)
                 self.load_volume_texture(seg)
 
@@ -151,8 +161,30 @@ class Render(object):
 
     def prepare_opengl(self):
         glClearColor(0.1, 0.1, 0.2, 1)
+        self.prepare_framebuff()
+
+    def prepare_framebuff(self):
+        W, H = self.state.viewport[2], self.state.viewport[3]
+        self.framebuffers = glGenFramebuffers(PlANE_ALL)
+        self.textures = glGenTextures(PlANE_ALL)
+
+        for plane, (fid, tid) in enumerate(zip(self.framebuffers, self.textures)):
+            glBindFramebuffer(GL_FRAMEBUFFER, fid)
+            glActiveTexture(GL_TEXTURE0 + plane)
+            glBindTexture(GL_TEXTURE_2D, tid)
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RGB, W, H, 0, GL_RGB, GL_UNSIGNED_BYTE, None
+            )
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tid, 0
+            )
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        self.state.set_refresh_all()
 
     def update_shader(self):
+        # print("update shader")
         with Program(self.shader_plane):
             W, H = self.state.viewport[2], self.state.viewport[3]
             W, H = W * self.state.plane_scale, H * self.state.plane_scale
@@ -169,8 +201,8 @@ class Render(object):
             glUniform3f(self.ptrs_plane["color_2"], *self.state.color_target_2)
             glUniform1f(self.ptrs_plane["mix_rate"], self.state.color_overlap)
 
-            glUniform1i(self.ptrs_plane["img"], 0)
-            glUniform1i(self.ptrs_plane["seg"], 1)
+            glUniform1i(self.ptrs_plane["img"], 4)
+            glUniform1i(self.ptrs_plane["seg"], 5)
 
             # IMG,SEG
 
@@ -206,12 +238,12 @@ class Render(object):
             glUniform3f(self.ptrs_3d["color_2"], *self.state.color_target_2)
             glUniform1f(self.ptrs_3d["mix_rate"], self.state.color_overlap)
 
-            glUniform1i(self.ptrs_3d["img"], 0)
-            glUniform1i(self.ptrs_3d["seg"], 1)
+            glUniform1i(self.ptrs_3d["img"], 4)
+            glUniform1i(self.ptrs_3d["seg"], 5)
 
     def update_texture(self):
         if self.state.need_reload_file():
-            print("Reload texture")
+            print("update texture")
             img, spacing, directions = get_img(self.state.input_file)
             seg = get_seg(self.state.input_file)
             print(img.shape, spacing, directions)
@@ -219,31 +251,55 @@ class Render(object):
             self.create_texture(img, seg)
             self.state.update_file_history()
             self.state.reset_camera()
+            self.state.set_refresh_all()
 
     def update_screen_size(self):
-        glViewport(*self.state.viewport)
+        if self.state.flag_screen_size:
+            print("update resize screen")
+            glViewport(*self.state.viewport)
+            print(self.state.viewport)
+            self.prepare_framebuff()
+            self.state.flag_screen_size = False
 
     def check_and_update(self):
-        self.update_screen_size()
         self.update_texture()
+        self.update_screen_size()
         self.update_shader()
+        self.refresh()
+
+    def refresh(self):
+        for plane, refresh in enumerate(self.state.need_refresh):
+            if not refresh:
+                continue
+            print(f"refresh {plane}-->{self.framebuffers[plane]}")
+            glBindFramebuffer(GL_FRAMEBUFFER, self.framebuffers[plane])
+            glViewport(0, 0, self.state.viewport[2], self.state.viewport[3])
+            if plane == PLANE_3D:
+                shader = self.shader_3d
+                with Program(shader):
+                    with VAO(self.vao):
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+            else:
+                shader = self.shader_plane
+                with Program(shader):
+                    glUniform1i(self.ptrs_plane["plane"], plane)
+                    with VAO(self.vao):
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+
+            self.state.need_refresh[plane] = False
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
     def draw_panel(self, plane_type):
-        if plane_type == PLANE_3D:
-            shader = self.shader_3d
-            with Program(shader):
-                with VAO(self.vao):
-                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
-        else:
-            shader = self.shader_plane
-            with Program(shader):
-                glUniform1i(self.ptrs_plane["plane"], plane_type)
-                with VAO(self.vao):
-                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+        with Program(self.shader_foreground):
+            glUniform1i(self.ptrs_foreground["sense"], plane_type)
+            with VAO(self.vao):
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
     def do_render(self):
-        glClear(GL_COLOR_BUFFER_BIT)
         self.check_and_update()
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glClear(GL_COLOR_BUFFER_BIT)
         if not self.state.file_opened:
             return
         if self.state.view_type == PlANE_ALL:

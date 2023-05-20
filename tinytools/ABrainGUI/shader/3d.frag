@@ -67,6 +67,8 @@ void main(){
             tex_coord = (W2M*vec4(pos,1.0)).xyz;
             vox_val = texture(img,tex_coord).r;
             vox_val = clamp(vox_val,vox_min,vox_max);
+            if(vox_val==vox_max)
+                vox_val = vox_min;
             vox_val = (vox_val-vox_min)/vox_window;
             vox_seg = texture(seg, tex_coord).r;
             if(vox_seg<0.5){

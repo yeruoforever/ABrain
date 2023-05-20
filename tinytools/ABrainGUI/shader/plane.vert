@@ -17,15 +17,15 @@ void main()
     vec2 tmp;
     float s;
     gl_Position = vec4(pos_screen, 0.0, 1.0);
-    if(plane == 1){         // 横断面(:,:,z)
+    if(plane == 0){         // 横断面(:,:,z)
         tmp = (2*focus.xy + screen*pos_screen)/(2*range.xy)+0.5;
         tex_coord = vec3(tmp.x, tmp.y, slice.z/range.z+0.5);
     }
-    else if(plane == 2){    // 冠状面（：,y,:）
+    else if(plane == 1){    // 冠状面（：,y,:）
         tmp = (2*focus.xz + screen*pos_screen)/(2*range.xz)+0.5;
         tex_coord = vec3(tmp.x, slice.y/range.y+0.5, tmp.y);
     }
-    else if(plane == 3){    // 矢状面(x,:,:)
+    else if(plane == 2){    // 矢状面(x,:,:)
         tmp = (2*focus.yz + screen*pos_screen)/(2*range.yz)+0.5;
         tex_coord = vec3(slice.x/range.x+0.5, tmp.x, tmp.y);
     }
