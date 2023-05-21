@@ -133,3 +133,10 @@ runs/
 archive/
 # personal config file
 *.toml
+
+# MacOS
+.DS_Store
+
+
+# VSCode
+.vscode
