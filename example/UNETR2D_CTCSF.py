@@ -489,12 +489,7 @@ if __name__ == "__main__":
                         logits = logits.permute(0, 2, 3, 4, 1)
                         aggregator.add_batch(logits, locations)
                 output = aggregator.get_output_tensor(cpu=False)  # 2, 512, 512, 36
-                print(
-                    output.shape,
-                    output.argmax(dim=0).shape,
-                    output.argmax(dim=0).squeeze().shape,
-                )
-                writer.save((name, subject["img"].affine), output.argmax(dim=0))
+                writer.save((name, subject["img"].affine), output)
                 output.unsqueeze_(dim=0)
                 # seg.unsqueeze_(dim=0)
                 loss = loss_func_test(output, seg)
