@@ -489,6 +489,11 @@ if __name__ == "__main__":
                         logits = logits.permute(0, 2, 3, 4, 1)
                         aggregator.add_batch(logits, locations)
                 output = aggregator.get_output_tensor(cpu=False)
+                print(
+                    output.shape,
+                    output.argmax(dim=1).shape,
+                    output.argmax(dim=1).squeeze().shape,
+                )
                 writer.save(
                     (name, subject["img"].affine), output.argmax(dim=1).squeeze()
                 )
