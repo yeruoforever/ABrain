@@ -340,6 +340,17 @@ if __name__ == "__main__":
     argparser.add_argument("--best-model", action="store_true")
 
     args = argparser.parse_args()
+
+    file_partations = os.path.join(args.runs, "partation.pt")
+    file_hd5 = os.path.join("/dev/shm", "CTCSF.hd5")
+    file_log = os.path.join("latest_run.log")
+    dir_best = os.path.join(args.runs, "best")
+    dir_latest = args.runs
+    dir_segout = os.path.join(args.runs, "segmentation")
+
+    handler = logging.FileHandler(file_log, mode="a+")
+    logging.getLogger().addHandler(handler)
+
     for each in dir(args):
         if not each.startswith("__"):
             logging.info(f"{each}-->{getattr(args,each)}")
@@ -355,17 +366,7 @@ if __name__ == "__main__":
 
     logging.info(f"Using Device {device.type}:{device.index}")
 
-    file_partations = os.path.join(args.runs, "partation.pt")
-    file_hd5 = os.path.join("/dev/shm", "CTCSF.hd5")
-    file_log = os.path.join("latest_run.log")
-    dir_best = os.path.join(args.runs, "best")
-    dir_latest = args.runs
-    dir_segout = os.path.join(args.runs, "segmentation")
-
     logging.info(f"Loggings in {file_log}")
-
-    handler = logging.FileHandler(file_log, mode="a+")
-    logging.getLogger().addHandler(handler)
 
     ds = CTCSF("5.0mm")
     label_names = ["background", "CSF"]
