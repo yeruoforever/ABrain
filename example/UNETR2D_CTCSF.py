@@ -50,6 +50,7 @@ class Augment(object):
         if not isinstance(img, torch.Tensor):
             img = torch.from_numpy(img)
         img = torch.clamp_(img, -10, 244)
+        img = (img + 10) / 256
         return img, seg
 
     def random_flip(self, img, seg):
