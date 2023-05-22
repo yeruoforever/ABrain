@@ -8,6 +8,7 @@ import h5py
 import numpy as np
 import tqdm
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import torchio as tio
 import torchvision.transforms.functional as trsf
@@ -27,6 +28,7 @@ from ABrain.dataset import CTCSF, OurDataset, Subset
 from ABrain.inference import UNet3DGridAggregator, UNet3DGridPatch
 from ABrain.evaluation import dice
 from ABrain.trainer.watchdog import Sniffer, WatchDog
+from ABrain.trainer.writer import NIfTIWriter
 from ABrain.modelzoo.losses import DiceLoss3D, DiceLoss2D
 
 
@@ -304,8 +306,10 @@ class CSF_Sniffer(Sniffer):
         return current["CSF"] > history["CSF"]
 
 
-def gradient_backward(loss, scaler, optimizer):
+def gradient_backward(loss, model, scaler, optimizer):
     scaler.scale(loss).backward()
+    scaler.unscale_(optimizer)
+    nn.utils.clip_grad.clip_grad_value_(model.parameters(), 1.0)
     scaler.step(optimizer)
     scaler.update()
     optimizer.zero_grad()
@@ -356,6 +360,7 @@ if __name__ == "__main__":
     file_log = os.path.join("latest_run.log")
     dir_best = os.path.join(args.runs, "best")
     dir_latest = args.runs
+    dir_segout = os.path.join(args.runs, "segmentation")
 
     logging.info(f"Loggings in {file_log}")
 
@@ -450,13 +455,14 @@ if __name__ == "__main__":
     loader = tqdm.tqdm(
         DataLoader(ds_train, batch_size=args.batch_size, shuffle=True, num_workers=0)
     )
+    writer = NIfTIWriter(dir_segout)
     for data in loader:
         img, seg = parse_data(data, device)
         img, seg = aug(img, seg)
         with autocast():
             out = model(img)
             loss = loss_func(out, seg)
-        gradient_backward(loss, scaler, optimizer)
+        gradient_backward(loss, model, scaler, optimizer)
         loader.set_description_str(f"loss:{loss.item()}")
         watchdog.catch(loss, out, seg)
         iters += img.shape[0]
@@ -482,6 +488,8 @@ if __name__ == "__main__":
                         aggregator.add_batch(logits, locations)
                 output = aggregator.get_output_tensor(cpu=False)
                 output.unsqueeze_(dim=0)
+                writer.save((name, subject["img"].affine), output)
+                print(output.shape, subject["img"].affine)
                 # seg.unsqueeze_(dim=0)
                 loss = loss_func_test(output, seg)
                 watchdog.catch(loss, output, seg, mode="validate")
