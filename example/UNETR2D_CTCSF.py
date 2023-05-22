@@ -15,8 +15,13 @@ import tqdm
 from monai.networks.nets.unetr import UNETR
 from torch.cuda.amp.autocast_mode import autocast
 from torch.cuda.amp.grad_scaler import GradScaler
-from torch.utils.data import (ConcatDataset, DataLoader, Dataset,
-                              TensorDataset, random_split)
+from torch.utils.data import (
+    ConcatDataset,
+    DataLoader,
+    Dataset,
+    TensorDataset,
+    random_split,
+)
 from torchio import DATA, LabelMap, ScalarImage, Subject
 
 from ABrain.dataset import CTCSF, OurDataset, Subset
@@ -482,7 +487,9 @@ if __name__ == "__main__":
                         logits = logits.permute(0, 2, 3, 4, 1)
                         aggregator.add_batch(logits, locations)
                 output = aggregator.get_output_tensor(cpu=False)
-                writer.save((name, subject["img"].affine), output.argmax(dim=0))
+                writer.save(
+                    (name, subject["img"].affine), output.argmax(dim=1).squeeze()
+                )
                 output.unsqueeze_(dim=0)
                 # seg.unsqueeze_(dim=0)
                 loss = loss_func_test(output, seg)
