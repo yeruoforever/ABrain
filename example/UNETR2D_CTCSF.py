@@ -6,30 +6,25 @@ from typing import *
 
 import h5py
 import numpy as np
-import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchio as tio
 import torchvision.transforms.functional as trsf
+import tqdm
 from monai.networks.nets.unetr import UNETR
 from torch.cuda.amp.autocast_mode import autocast
 from torch.cuda.amp.grad_scaler import GradScaler
-from torch.utils.data import (
-    ConcatDataset,
-    DataLoader,
-    Dataset,
-    TensorDataset,
-    random_split,
-)
+from torch.utils.data import (ConcatDataset, DataLoader, Dataset,
+                              TensorDataset, random_split)
 from torchio import DATA, LabelMap, ScalarImage, Subject
 
 from ABrain.dataset import CTCSF, OurDataset, Subset
-from ABrain.inference import UNet3DGridAggregator, UNet3DGridPatch
 from ABrain.evaluation import dice
+from ABrain.inference import UNet3DGridAggregator, UNet3DGridPatch
+from ABrain.modelzoo.losses import DiceLoss2D, DiceLoss3D
 from ABrain.trainer.watchdog import Sniffer, WatchDog
 from ABrain.trainer.writer import NIfTIWriter
-from ABrain.modelzoo.losses import DiceLoss3D, DiceLoss2D
 
 
 class Augment(object):
