@@ -137,7 +137,7 @@ class Augment(object):
     def __call__(self, img, seg, **kwds: Any) -> Any:
         img, seg = self.normalize(img, seg)
         img, seg = self.random_flip(img, seg)
-        # img, seg = self.random_affine(img, seg)
+        img, seg = self.random_affine(img, seg)
         img, seg = self.random_crop(img, seg)
         return img, seg
 
