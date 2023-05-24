@@ -217,10 +217,12 @@ class CT2DDataset(Dataset):
                     f'Wrong size ({sid}): img{subject["img"].shape}, seg{subject["seg"].shape}'
                 )
                 continue
-            img = subject["img"][DATA][:, :, :, 2:-2]
-            seg = subject["seg"][DATA][:, :, :, 2:-2]
-            img_pool.append(img)  # 1,512,512,n
-            seg_pool.append(seg)
+            img = subject["img"][DATA]
+            seg = subject["seg"][DATA]
+            msk: torch.Tensor = seg == 3
+            msk = msk.nonzero()[:, 3].unique()
+            img_pool.append(img[:, :, :, msk])  # 1,512,512,n
+            seg_pool.append(seg[:, :, :, msk])
 
         self.img_pool = torch.cat(img_pool, dim=3).permute(3, 0, 1, 2)
         self.seg_pool = torch.cat(seg_pool, dim=3).permute(3, 0, 1, 2)
@@ -463,6 +465,7 @@ if __name__ == "__main__":
         img, seg = aug(img, seg)
         with autocast():
             out = model(img)
+            out = torch.softmax(out, dim=1)
             loss = loss_func(out, seg)
         gradient_backward(loss, model, scaler, optimizer)
         loader.set_description_str(f"loss:{loss.item()}")
