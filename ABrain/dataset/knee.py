@@ -5,7 +5,7 @@ from .base import OurDataset
 
 class KneeHighResTrain(OurDataset):
     def __init__(self, database) -> None:
-        super().__init__(database, has_seg=True)
+        super().__init__(database,"KneeHighResTrain", has_seg=True)
 
     def get_samples(self, database):
         dir_img = os.path.join(database, "image")
@@ -22,7 +22,7 @@ class KneeHighResTrain(OurDataset):
 
 class KneeHighResVal(OurDataset):
     def __init__(self, database) -> None:
-        super().__init__(database, has_seg=True)
+        super().__init__(database,"KneeHighResVal", has_seg=True)
 
     def get_samples(self, database):
         dir_img = os.path.join(database, "image_02")

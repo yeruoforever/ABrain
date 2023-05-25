@@ -1,17 +1,46 @@
+import toml
+
 from torchio import Subject, ScalarImage, LabelMap
 from torchio import Compose
 from torchio.transforms.augmentation import RandomTransform
 
 from torch.utils.data import Dataset
-from torchdata.datapipes import iter
+from torch.utils.data.datapipes import iter as iter
+
+# from torchdata.datapipes import iter
+
+
+def read_config(conf_name: str):
+    with open("database.toml", "r") as f:
+        config = toml.load(f)
+    if conf_name in config.keys():
+        return config[conf_name]
+    else:
+        datasets = config["Dataset"]
+        n = len(datasets)
+        keys = {datasets[i]["name"]: i for i in range(n)}
+        if conf_name in keys:
+            return datasets[keys[conf_name]]
+        else:
+            raise KeyError(f"{conf_name} is not a dataset.")
 
 
 class OurDataset(object):
-    def __init__(self, database, has_seg: bool = False) -> None:
+    def __init__(
+        self,
+        database,
+        name: str,
+        has_seg: bool = False,
+        has_label: bool = False,
+        has_info: bool = False,
+    ) -> None:
         super().__init__()
         self.database = database
+        self.name = name
         self.sids = self.get_samples(database)
         self.has_seg = has_seg
+        self.has_label = has_label
+        self.has_info = has_info
 
     def __len__(self):
         return len(self.sids)
@@ -31,6 +60,8 @@ class Subset(OurDataset):
         self.dataset = dataset
         self.ids = ids
         self.has_seg = dataset.has_seg
+        self.has_label = dataset.has_label
+        self.has_info = dataset.has_info
         self.sids = [dataset.sids[i] for i in ids]
 
     def __len__(self):
@@ -45,11 +76,7 @@ class Subset(OurDataset):
 
 def train_subjects(x):
     sid, img, seg = x
-    return Subject(
-        name=sid,
-        img=ScalarImage(img),
-        seg=LabelMap(seg)
-    )
+    return Subject(name=sid, img=ScalarImage(img), seg=LabelMap(seg))
 
 
 def test_subjects(x):
@@ -62,8 +89,7 @@ def test_subjects(x):
 
 
 class DatasetWapper(Dataset):
-
-    def __init__(self, dataset: OurDataset, transforms: Compose=None) -> None:
+    def __init__(self, dataset: OurDataset, transforms: Compose = None) -> None:
         super().__init__()
         self.ds = dataset
         self.ts = transforms
@@ -73,16 +99,9 @@ class DatasetWapper(Dataset):
         if self.ds.has_seg:
             img = self.ds.img_file(sid)
             seg = self.ds.seg_file(sid)
-            subject = Subject(
-                name=sid,
-                img=ScalarImage(img),
-                seg=LabelMap(seg)
-            )
+            subject = Subject(name=sid, img=ScalarImage(img), seg=LabelMap(seg))
         else:
-            subject = Subject(
-                name=sid,
-                img=ScalarImage(self.ds.img_file(sid))
-            )
+            subject = Subject(name=sid, img=ScalarImage(self.ds.img_file(sid)))
         if self.ts:
             return self.ts(subject)
         else:

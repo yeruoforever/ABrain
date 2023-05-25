@@ -22,8 +22,20 @@ def iou(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False, sm
         P = pred == label
         numerator = torch.logical_and(R, P).sum()
         denominator = torch.logical_or(P, R).sum()
-        iou = (numerator+smooth)/(denominator+smooth)
-        ious.append(iou)
+        score = (numerator+smooth)/(denominator+smooth)
+        ious.append(score)
+    return Tensor(ious).tolist()
+
+
+def iou_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    ious = []
+    for label in range(st, n_labels):
+        numerator = mat[label, label]
+        denominator = mat[label, :].sum()+mat[:, label].sum()-numerator
+        score = (numerator+smooth)/(denominator+smooth)
+        ious.append(score)
     return Tensor(ious).tolist()
 
 
@@ -68,6 +80,18 @@ def dice(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False, s
     return Tensor(dices).tolist()
 
 
+def dice_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    dices = []
+    for label in range(st, n_labels):
+        denominator = mat[label, :].sum()+mat[:, label].sum()
+        numerator = mat[label, label]
+        score = (2*numerator+smooth)/(denominator+smooth)
+        dices.append(score)
+    return Tensor(dices).tolist()
+
+
 def f1score(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False, smooth: float = 1.):
     # pred   (B,W,H,D)
     # target (B,W,H,D)
@@ -88,6 +112,25 @@ def f1score(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False
     return Tensor(f1s).tolist()
 
 
+def f1_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    f1s = []
+    total = mat.sum()
+    for label in range(st, n_labels):
+        P = mat[:, label].sum()
+        # N = total-P
+        TP = mat[label, label]
+        FP = P - TP
+        FN = mat[label, :].sum()-TP
+        # TN = total - TP -FP -FN
+        recall = TP/(TP+FN)
+        precision = TP/(TP+FP)
+        score = 2*recall*precision/(precision+recall)
+        f1s.append(score)
+    return Tensor(f1s).tolist()
+
+
 def vd(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False):
     ''' Volume Difference'''
     # pred   (B,W,H,D)
@@ -98,6 +141,16 @@ def vd(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False):
         R = target == label
         P = pred == label
         vd = R.sum()-P.sum()
+        vds.append(vd)
+    return Tensor(vds).tolist()
+
+
+def vd_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    vds = []
+    for label in range(st, n_labels):
+        vd = mat[label, :].sum()-mat[:, label].sum()
         vds.append(vd)
     return Tensor(vds).tolist()
 
@@ -119,6 +172,18 @@ def rvd(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False):
     return Tensor(vds).tolist()
 
 
+def rvd_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    vds = []
+    for label in range(st, n_labels):
+        P = mat[:, label].sum()
+        R = mat[label, :].sum()
+        vd = (P-R).abs().div(R)
+        vds.append(vd)
+    return Tensor(vds).tolist()
+
+
 def voe(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False, smooth: float = 1.):
     '''volumetric overlap error'''
     # pred   (B,W,H,D)
@@ -130,6 +195,20 @@ def voe(pred: Tensor, target: Tensor, n_labels: int, bg_ignore: bool = False, sm
         P = pred == label
         numerator = torch.logical_and(R, P).sum()
         denominator = torch.logical_or(P, R).sum()
+        voe = 1-(numerator+smooth)/(denominator+smooth)
+        voes.append(voe)
+    return Tensor(voes).tolist()
+
+
+def voe_on_confusion_matrix(mat: Tensor, bg_ignore: bool = False, smooth: float = 1.):
+    n_labels = mat.shape[0]
+    st = 1 if bg_ignore else 0
+    voes = []
+    for label in range(st, n_labels):
+        R = mat[label, :].sum()
+        P = mat[:, label].sum()
+        numerator = mat[label, label].sum()
+        denominator = P + R - numerator
         voe = 1-(numerator+smooth)/(denominator+smooth)
         voes.append(voe)
     return Tensor(voes).tolist()

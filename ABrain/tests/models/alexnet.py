@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from ...modelzoo.AlexNet import AlexNet
+from ...modelzoo.backbone.AlexNet import AlexNet
 
 
 class TestAlexNet(unittest.TestCase):

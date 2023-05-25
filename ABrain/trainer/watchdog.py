@@ -44,8 +44,9 @@ class WatchDog(object):
         self._cur_v = 0
 
     def catch(self, loss, pred, target, mode: str = 'train'):
+        assert mode in ['train', 'validate']
         smell = self.nose.sniffing(pred, target)
-        smell['loss'] = loss
+        smell['loss'] = loss.item() if isinstance(loss, torch.Tensor) else loss
         collect(self._kennel[mode], smell)
         if mode == 'train':
             self._cur_t += 1

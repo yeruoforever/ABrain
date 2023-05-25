@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .base import ClassifyModel
+from ..base import ClassifyModel
 
 
 class LinearPool(nn.Module):

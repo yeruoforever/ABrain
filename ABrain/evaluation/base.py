@@ -14,8 +14,10 @@ from ..trainer.writer import InferenceWriter
 
 
 class Analyzer(object):
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str,label_names:Iterable[str]) -> None:
         self.name = name
+        self.label_names=label_names
+        self.n_labels = len(label_names)
 
     def analyze(self, subject: Subject):
         """用于实现对`subject`的分析"""
@@ -28,8 +30,9 @@ class Analyzer(object):
 
         `{"Subject":sid, "A":a, "B":b, ...}`
         """
+        lns = self.label_names
         if isinstance(out, Iterable) and not isinstance(out, str):
-            return {self.name + ' ' + str(i): e for i, e in enumerate(out)}
+            return {self.name + ' ' + n : e for n, e in zip(lns,out)}
         else:
             return {self.name: out}
 
@@ -49,7 +52,7 @@ class ComposeAnalyzer(Analyzer):
     def __init__(self,
                  *analyzers: Iterable[Analyzer]
                  ) -> None:
-        super().__init__(name="ComposeAnalyzer")
+        super().__init__(name="ComposeAnalyzer",label_names=[])
         self.analyzers = analyzers
 
     def __call__(self, subject) -> Dict:
