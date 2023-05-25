@@ -1,4 +1,4 @@
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Optional
 from torchio.data import Subject
 import torchio as tio
 from torch import Tensor
@@ -18,7 +18,7 @@ class Supervisor(object):
 class Inspector(object):
     '''The inspector who submits the results to the `Supervisor`'''
 
-    def __init__(self, supervisor: Supervisor = None) -> None:
+    def __init__(self, supervisor: Optional[Supervisor]) -> None:
         self.supervisor = supervisor
 
     def check(self, subject: Subject) -> Tuple[bool, str]:
@@ -39,7 +39,7 @@ class CheckSomeOf(Inspector):
     The inspectors check whether the object is qualified. When a inspector finds a nonconformity, the inspection of the object is terminated.
     '''
 
-    def __init__(self, inspectors: Iterable[Inspector], supervisor: Supervisor = None) -> None:
+    def __init__(self, inspectors: Iterable[Inspector], supervisor: Optional[Supervisor]) -> None:
         super().__init__(supervisor)
         self.inspectors = inspectors
         if supervisor is not None:
@@ -75,7 +75,7 @@ class CheckAllOf(Inspector):
 class ShapeConsistency(Inspector):
     '''Check the consistency(shape and others).'''
 
-    def __init__(self, supervisor: Supervisor = None) -> None:
+    def __init__(self, supervisor: Optional[Supervisor]) -> None:
         super().__init__(supervisor)
 
     def check(self, subject: Subject) -> Tuple[bool, str]:
@@ -90,7 +90,7 @@ class ShapeConsistency(Inspector):
 class LabelLegality(Inspector):
     '''Check that the label is valid.'''
 
-    def __init__(self, labels: Iterable, supervisor: Supervisor = None) -> None:
+    def __init__(self, labels: Iterable, supervisor: Optional[Supervisor]) -> None:
         super().__init__(supervisor)
         self.labels = set(labels)
 

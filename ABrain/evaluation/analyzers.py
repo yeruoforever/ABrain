@@ -9,7 +9,7 @@ class CompareAnalyzer(Analyzer):
     def __init__(self, name: str) -> None:
         super().__init__(name)
 
-    def parse_data(self, subject: Subject) -> Tuple[Tensor]:
+    def parse_data(self, subject: Subject) -> Tuple[Tensor,Tuple]:
         if not isinstance(subject['pred'],torch.Tensor):    # Monai API
             pred: Tensor = subject['pred'][tio.DATA]
         else:
