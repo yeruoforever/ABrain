@@ -266,6 +266,7 @@ if __name__ == "__main__":
     argparser.add_argument("--partation", action="store_true")
     argparser.add_argument("--runs", type=str, default="/tmp/yeruo/runs")
     argparser.add_argument("--fold", type=int, default=1)
+    argparser.add_argument("--use-all", action="store_true")
     argparser.add_argument("--best-model", action="store_true")
     argparser.add_argument("--inference", action="store_true")
     args = argparser.parse_args()
@@ -406,7 +407,7 @@ if __name__ == "__main__":
 
     if not args.inference:
         logging.info(f"Loading Train Dataset...")
-        ds_train = CT2DDataset(ds, tb_train)
+        ds_train = CT2DDataset(ds, tb_train, args.use_all)
         logging.info(f"Loading Test Dataset...")
         ds_test = CT2DDataset(ds, tb_test)
         logging.info(f"Traing from epoch {start+1}...")
@@ -436,11 +437,12 @@ if __name__ == "__main__":
                         img = img.to(device)
                         seg = seg.to(device)
                         img, seg = augment_test(img, seg)
-                        out = model(img)
-                        loss = loss_func(out, seg)
+                        with autocast():
+                            out = model(img)
+                            loss = loss_func(out, seg)
                         watchdog.catch(loss, out, seg, mode="validate")
                 current = watchdog.step()
-                print(current)
+                logging.info(str(current)[1:-1])
                 if watchdog.happy():
                     logging.info(f"[Better weight]:{current}")
                     save_state(
