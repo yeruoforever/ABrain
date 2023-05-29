@@ -53,32 +53,45 @@ class CSFSniffer(Sniffer):
 class CT2DDataset(Dataset):
     def __init__(self, ds: CTCSF, tb: pds.DataFrame, use_all: bool = True) -> None:
         super().__init__()
-        imgs = []
-        segs = []
+        imgs_p = []
+        segs_p = []
+        imgs_n = []
+        self.use_all = use_all
         for sid, st, ed in zip(tb["SubjectID"], tb["Start"], tb["End"]):
             img = ds.img_file(sid)
             seg = ds.seg_file(sid)
             img = np.asanyarray(nib.load(img).dataobj)
             seg = np.asanyarray(nib.load(seg).dataobj)
-            if not use_all:
-                img = img[:, :, st:ed]
-                seg = seg[:, :, st:ed]
             seg[seg != 3] = 0
             seg[seg == 3] = 1
-            img = torch.from_numpy(img.astype(np.int32))
-            seg = torch.from_numpy(seg.astype(np.int8))
-            imgs.append(img)
-            segs.append(seg)
-        self.imgs = torch.cat(imgs, dim=2).permute(2, 0, 1).float()
-        self.segs = torch.cat(segs, dim=2).permute(2, 0, 1).long()
+            img_p = img[:, :, st:ed]
+            seg_p = seg[:, :, st:ed]
+            imgs_p.append(torch.from_numpy(img_p.astype(np.int32)))
+            segs_p.append(torch.from_numpy(seg_p.astype(np.int8)))
+            if use_all:
+                img_n = img[:, :, :st]
+                imgs_n.append(torch.from_numpy(img_n.astype(np.int32)))
+                img_n = img[:, :, ed:]
+                imgs_n.append(torch.from_numpy(img_n.astype(np.int32)))
+        self.imgs_p = torch.cat(imgs_p, dim=2).permute(2, 0, 1).float()
+        self.segs_p = torch.cat(segs_p, dim=2).permute(2, 0, 1).long()
+        if use_all:
+            self.imgs_n = torch.cat(imgs_n, dim=2).permute(2, 0, 1).float()
+            self.segs_n = torch.zeros(self.imgs_n.shape, dtype=torch.long)
 
     def __getitem__(self, index) -> Any:
-        img = self.imgs[index, None]
-        seg = self.segs[index, None]
+        img = self.imgs_p[index, None]
+        seg = self.segs_p[index, None]
+        if self.use_all:
+            index = torch.randint(self.imgs_n.shape[0], (1,)).item()
+            img_n = self.imgs_n[index, None]
+            seg_n = self.segs_n[index, None]
+            img = torch.cat((img, img_n), dim=0)
+            seg = torch.cat((seg, seg_n), dim=0)
         return img, seg
 
     def __len__(self):
-        return self.imgs.shape[0]
+        return self.imgs_p.shape[0]
 
 
 class ShuffleDataset(Dataset):
@@ -140,12 +153,12 @@ class Augment(object):
         self.crop_size = crop_size
 
     def normalize(self, img: torch.Tensor, seg):
+        if not isinstance(seg, torch.Tensor):
+            seg = torch.from_numpy(seg)
         if not isinstance(img, torch.Tensor):
-            img = torch.from_numpy(img)
-        if not isinstance(img, torch.Tensor):
-            img = torch.from_numpy(img)
-        img = torch.clamp_(img, -10, 244)
-        img = (img + 10) / 256
+            img = torch.from_numpy(img).float()
+        # img = torch.clamp_(img, -10, 244)
+        # img = (img + 10) / 256
         return img, seg
 
     def random_flip(self, img, seg):
@@ -420,8 +433,9 @@ if __name__ == "__main__":
         )
         loader_train = tqdm.tqdm(DataLoader(ds_train, batch_size=args.batch))
         for img, seg in loader_train:
-            img = img.to(device)
-            seg = seg.to(device)
+            B, C, W, H = img.shape
+            img = img.reshape(B * C, 1, W, H).to(device)
+            seg = seg.reshape(B * C, 1, W, H).to(device)
             with autocast():
                 out = model(img)
                 loss = loss_func(out, seg)
@@ -434,8 +448,9 @@ if __name__ == "__main__":
             if counter.enough():
                 for img, seg in DataLoader(ds_test, batch_size=args.batch):
                     with torch.no_grad():
-                        img = img.to(device)
-                        seg = seg.to(device)
+                        B, C, W, H = img.shape
+                        img = img.reshape(B * C, 1, W, H).to(device)
+                        seg = seg.reshape(B * C, 1, W, H).to(device)
                         img, seg = augment_test(img, seg)
                         with autocast():
                             out = model(img)
