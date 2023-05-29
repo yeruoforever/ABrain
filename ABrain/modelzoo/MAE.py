@@ -8,11 +8,14 @@ import torch.nn.functional as F
 import monai.networks.layers as layers
 from timm.models.vision_transformer import Block
 
-def times(a,b):
-    return a*b
 
-def prod(x:Sequence[int])->int:
-    return reduce(times,x,1)
+def times(a, b):
+    return a * b
+
+
+def prod(x: Sequence[int]) -> int:
+    return reduce(times, x, 1)
+
 
 def to_tuple(x: Union[int, Tuple[int]]):
     if isinstance(x, int):
@@ -25,11 +28,11 @@ def to_tuple(x: Union[int, Tuple[int]]):
 def _sincos_pos_embed(dims: int, pos: Tensor):
     assert dims % 2 == 0
     pos = pos.flatten()
-    omege = torch.arange(0, dims//2, dtype=torch.float32)
-    omege.div_(dims/2)
-    omege = 1. / 10000**omege
+    omege = torch.arange(0, dims // 2, dtype=torch.float32)
+    omege.div_(dims / 2)
+    omege = 1.0 / 10000**omege
 
-    x = torch.einsum('p,d->pd', pos, omege)
+    x = torch.einsum("p,d->pd", pos, omege)
     emb_sin = x.sin()
     emb_cos = x.cos()
 
@@ -46,11 +49,11 @@ def sincos_pos_embed(
     assert embed_dims % n == 0
     axis = [torch.arange(0, gs, dtype=int) for gs in grid_size]
     grid = torch.meshgrid(axis, indexing="ij")
-    embedding = torch.cat([
-        _sincos_pos_embed(embed_dims//n, gi) for gi in grid
-    ], dim=1)
+    embedding = torch.cat(
+        [_sincos_pos_embed(embed_dims // n, gi) for gi in grid], dim=1
+    )
     if cls_token:
-        cls_embed = torch.zeros(1, embed_dims,dtype=torch.float32)
+        cls_embed = torch.zeros(1, embed_dims, dtype=torch.float32)
         embedding = torch.cat((cls_embed, embedding), dim=0)
     return embedding
 
@@ -60,7 +63,7 @@ def grid_size(img_size: Iterable, patch_size: Iterable) -> list:
     b = Tensor(patch_size)
     reainder = torch.remainder(a, b)
     assert torch.all(reainder == 0)
-    return (a//b).long().tolist()
+    return (a // b).long().tolist()
 
 
 class PatchEmbed(nn.Module):
@@ -87,7 +90,7 @@ class PatchEmbed(nn.Module):
         self.num_patches = prod(self.grid_size)
         self.img_size = img_size
         self.patch_size = patch_size
-        self.conv_patchify=conv_patchify
+        self.conv_patchify = conv_patchify
 
         if self.conv_patchify:
             self.proj = layers.Conv["Conv", spatial_size](
@@ -95,19 +98,19 @@ class PatchEmbed(nn.Module):
                 out_channels=embed_dim,
                 kernel_size=patch_size,
                 stride=patch_size,
-                bias=bias
+                bias=bias,
             )
         else:
             self.proj = nn.Linear(
-                in_features=prod(patch_size)*in_channels,
+                in_features=prod(patch_size) * in_channels,
                 out_features=embed_dim,
-                bias=bias
+                bias=bias,
             )
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def forward(self, img: Tensor) -> Tensor:
         x = self.proj(img)  # B,C,X,Y,Z
-        if self.conv_patchify:   # B,C,X,Y,Z -> B,C,N -> B,N,C
+        if self.conv_patchify:  # B,C,X,Y,Z -> B,C,N -> B,N,C
             x = x.flatten(-self.spatial_size).transpose(-1, -2)
         x = self.norm(x)
         return x
@@ -119,21 +122,20 @@ class MSA(nn.Module):
         dim: int,
         num_heads: int = 8,
         qkv_bias: bool = False,
-        attn_drop: float = 0.,
-        proj_drop: float = 0.,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
         *args,
         **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         assert dim % num_heads == 0, "`dim` must be divisible by `num_headers`"
         self.num_heads = num_heads
-        self.dim_head = dim//num_heads
+        self.dim_head = dim // num_heads
         # self.scale = self.dim_head**-0.5
-        self.qkv = nn.Linear(dim, dim*3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.att_drop = attn_drop
         self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(
-            proj_drop) if proj_drop > 0. else nn.Identity()
+        self.proj_drop = nn.Dropout(proj_drop) if proj_drop > 0.0 else nn.Identity()
 
     def forward(self, x):
         B, L, C = x.shape
@@ -141,8 +143,7 @@ class MSA(nn.Module):
         qkv = qkv.reshape(B, L, 3, self.num_heads, self.dim_head)  # B,L,3,h,d
         qkv = qkv.permute(2, 0, 3, 1, 4)  # 3,B,h,L,d
         q, k, v = qkv.unbind(dim=0)
-        x = F.scaled_dot_product_attention(
-            q, k, v, dropout_p=self.att_drop)  # B,h,L,d
+        x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.att_drop)  # B,h,L,d
         x = x.transpose(1, 2).reshape(B, L, C)
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -150,16 +151,38 @@ class MSA(nn.Module):
 
 
 class ViTBlock(Block):
-    def __init__(self, dim, num_heads, mlp_ratio=4, qkv_bias=False, drop=0, attn_drop=0, init_values=None, drop_path=0, act_layer=nn.GELU, norm_layer=nn.LayerNorm):
-        super().__init__(dim, num_heads, mlp_ratio, qkv_bias, drop,
-                         attn_drop, init_values, drop_path, act_layer, norm_layer)
+    def __init__(
+        self,
+        dim,
+        num_heads,
+        mlp_ratio=4,
+        qkv_bias=False,
+        drop=0,
+        attn_drop=0,
+        init_values=None,
+        drop_path=0,
+        act_layer=nn.GELU,
+        norm_layer=nn.LayerNorm,
+    ):
+        super().__init__(
+            dim,
+            num_heads,
+            mlp_ratio,
+            qkv_bias,
+            proj_drop=drop,
+            attn_drop=attn_drop,
+            init_values=init_values,
+            drop_path=drop_path,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
         del self.attn
         self.attn = MSA(
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             attn_drop=attn_drop,
-            proj_drop=drop
+            proj_drop=drop,
         )
 
 
@@ -175,7 +198,7 @@ class MaskedAutoEncoderViT(nn.Module):
         decoder_dim: int,
         decoder_depth: int,
         decoder_heads: int,
-        mlp_ratio: float = 4.,
+        mlp_ratio: float = 4.0,
         norm_layer: Optional[nn.LayerNorm] = nn.LayerNorm,
         norm_pix_loss: bool = False,
         *args,
@@ -191,45 +214,47 @@ class MaskedAutoEncoderViT(nn.Module):
             in_channels,
             embed_dim,
             norm_layer,
-            conv_patchify=False
+            conv_patchify=False,
         )
         grid_size = self.patch_embed.grid_size
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         pos_embed = sincos_pos_embed(embed_dim, grid_size, cls_token=True)
         self.pos_embed = nn.Parameter(pos_embed.unsqueeze(0))
-        self.encode_blocks = nn.ModuleList([
-            ViTBlock(
-                embed_dim,
-                num_heads,
-                mlp_ratio,
-                qkv_bias=True,
-                norm_layer=norm_layer if norm_layer else nn.Identity
-            )
-            for _ in range(depth)
-        ])
+        self.encode_blocks = nn.ModuleList(
+            [
+                ViTBlock(
+                    embed_dim,
+                    num_heads,
+                    mlp_ratio,
+                    qkv_bias=True,
+                    norm_layer=norm_layer if norm_layer else nn.Identity,
+                )
+                for _ in range(depth)
+            ]
+        )
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
         self.decode_embed = nn.Linear(embed_dim, decoder_dim, bias=True)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_dim))
         pos_embed = sincos_pos_embed(decoder_dim, grid_size, cls_token=True)
         self.decoder_pos = nn.Parameter(pos_embed.unsqueeze(0))
-        self.decode_blocks = nn.ModuleList([
-            ViTBlock(
-                decoder_dim,
-                decoder_heads,
-                mlp_ratio,
-                qkv_bias=True,
-                norm_layer=norm_layer if norm_layer else nn.Identity
-            )
-            for _ in range(decoder_depth)
-        ])
+        self.decode_blocks = nn.ModuleList(
+            [
+                ViTBlock(
+                    decoder_dim,
+                    decoder_heads,
+                    mlp_ratio,
+                    qkv_bias=True,
+                    norm_layer=norm_layer if norm_layer else nn.Identity,
+                )
+                for _ in range(decoder_depth)
+            ]
+        )
         self.decoder_norm = norm_layer(decoder_dim) if norm_layer else nn.Identity()
 
         self.norm_pix_loss = norm_pix_loss
         self.patch_restore = nn.Linear(
-            decoder_dim,
-            prod(patch_size)*self.C,
-            bias=True
+            decoder_dim, prod(patch_size) * self.C, bias=True
         )
 
         self.initialize_weight()
@@ -239,8 +264,8 @@ class MaskedAutoEncoderViT(nn.Module):
         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
 
         # timm's trunc_normal_(std=.02) is effectively normal_(std=0.02) as cutoff is too big (2.)
-        nn.init.normal_(self.cls_token, std=.02)
-        nn.init.normal_(self.mask_token, std=.02)
+        nn.init.normal_(self.cls_token, std=0.02)
+        nn.init.normal_(self.mask_token, std=0.02)
 
         # initialize nn.Linear and nn.LayerNorm
         self.apply(self._init_weights)
@@ -268,16 +293,16 @@ class MaskedAutoEncoderViT(nn.Module):
             d, w, h = self.patch_embed.patch_size
             nD, nW, nH = grid_size((D, W, H), (d, w, h))
             x = imgs.reshape(B, C, nD, d, nW, w, nH, h)
-            x = torch.einsum("bcdihjwk->bdhwijkc",x)
-            x = x.reshape(B, nD*nW*nH, d*w*h*C)
+            x = torch.einsum("bcdihjwk->bdhwijkc", x)
+            x = x.reshape(B, nD * nW * nH, d * w * h * C)
             return x
         elif self.patch_embed.spatial_size == 2:
             B, C, W, H = imgs.shape
             w, h = self.patch_embed.patch_size
             nW, nH = grid_size((W, H), (w, h))
             x = imgs.reshape(B, C, nW, w, nH, h)
-            x = torch.einsum("bchjwk->bhwjkc")
-            x = x.reshape(B, nW*nH, w*h*C)
+            x = torch.einsum("bchjwk->bhwjkc", x)
+            x = x.reshape(B, nW * nH, w * h * C)
             return x
 
     def unpatchify(self, x: Tensor):
@@ -292,7 +317,7 @@ class MaskedAutoEncoderViT(nn.Module):
             nD, nW, nH = grid_size((self.img_size, (d, w, h)))
             x = x.reshape(B, nD, nW, nH, d, w, h, self.C)
             x = torch.einsum("bijkdwhc->bcidjhkw", x)
-            x = x.reshape(B, self.C, nD*d, nW*w, nH*h)
+            x = x.reshape(B, self.C, nD * d, nW * w, nH * h)
             return x
 
         elif self.patch_embed.spatial_size == 2:
@@ -300,12 +325,11 @@ class MaskedAutoEncoderViT(nn.Module):
             nW, nH = grid_size((self.img_size, (w, h)))
             x = x.reshape(B, nW, nH, w, h, self.C)
             x = torch.einsum("bjkwhc->bcjhkw", x)
-            x = x.reshape(B, self.C, nW*w, nH*h)
+            x = x.reshape(B, self.C, nW * w, nH * h)
             return x
 
     def random_masking(self, B: int, L: int, device, mask_ratio: float):
-
-        len_keep = int((1-mask_ratio)*L)
+        len_keep = int((1 - mask_ratio) * L)
         noise = torch.rand(B, L, device=device)
         ids_shuffle = torch.argsort(noise, dim=1)
         ids_restore = torch.argsort(ids_shuffle, dim=1)
@@ -334,7 +358,7 @@ class MaskedAutoEncoderViT(nn.Module):
         x = self.patch_embed(img_masked)
         postion = self.pos_embed[:, 1:, :].repeat(B, 1, 1)
         keep_ = keep.unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
-        postion = postion.gather(dim=1,index=keep_)
+        postion = postion.gather(dim=1, index=keep_)
         x = x + postion
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
         cls_token = cls_token.repeat(B, 1, 1)
@@ -353,7 +377,7 @@ class MaskedAutoEncoderViT(nn.Module):
         x_ = x_.gather(dim=1, index=restore)
         x = torch.cat([x[:, :1, :], x_], dim=1)
 
-        x = x+self.decoder_pos
+        x = x + self.decoder_pos
         for block in self.decode_blocks:
             x = block(x)
         x = self.decoder_norm(x)
@@ -370,7 +394,7 @@ class MaskedAutoEncoderViT(nn.Module):
         if self.norm_pix_loss:
             mean = img_masked.mean(dim=-1, keepdim=True)
             var = img_masked.var(dim=-1, keepdim=True)
-            img_masked = (img_masked-mean)/torch.sqrt(var+1e-6)
-        loss = (pred-img_masked)**2  # B,l,D
+            img_masked = (img_masked - mean) / torch.sqrt(var + 1e-6)
+        loss = (pred - img_masked) ** 2  # B,l,D
         loss = loss.mean(dim=-2)
         return loss.mean()
