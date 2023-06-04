@@ -5,11 +5,11 @@ import glfw
 import glm
 import numpy as np
 from gui import *
+from neuron import *
 from OpenGL.GL import *
 from shader import *
 from status import *
 from utils import *
-from neuron import *
 
 DEBUG = True
 
@@ -314,9 +314,8 @@ class Render(object):
         self.prepare_opengl()
         if DEBUG:
             self.state.input_file = (
-                "/Users/yeruo/WorkSpace/CTCSF/1.25mm/img/20230109000675.nii.gz"
+                "/Users/yeruo/WorkSpace/Datasets/CTCSF/1.25mm/img/20230109000675.nii.gz"
                 # "/Users/yeruo/WorkSpace/CTCSF/5.0mm/img/20230102000345.nii.gz"
-                # "/Users/yeruo/WorkSpace/3月颅脑CT及标记数据数据/3月颅脑导数据/标记数据/img/1.25mm/20230327007282.nii.gz"
             )
             self.update_texture()
         while glfw.window_should_close(self.window) == 0:
