@@ -75,10 +75,10 @@ void main(){
                 src = vec4(vox_val);
             }
             else if (0.5 < vox_seg && vox_seg < 2.5){
-                src = vec4(vox_val);
+                src = vec4(color_1.rgb,1);
             }
             else if(2.5 < vox_seg && vox_seg < 3.5){
-                src = vec4(color_1.rgb,1);
+                src = vec4(color_2.rgb,1);
             }
             else{
                 src = vec4(vox_val);
