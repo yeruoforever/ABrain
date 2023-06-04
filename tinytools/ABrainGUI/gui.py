@@ -241,8 +241,7 @@ class GUI(object):
     def patient_message(self):
         with imgui.begin(
             "Patient",
-            flags=imgui.WINDOW_NO_TITLE_BAR
-            # | imgui.WINDOW_NO_RESIZE
+            flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
             # | imgui.WINDOW_NO_MOVE,
         ):
@@ -266,8 +265,7 @@ class GUI(object):
     def camera_control(self):
         with imgui.begin(
             "Camera",
-            flags=imgui.WINDOW_NO_TITLE_BAR
-            # | imgui.WINDOW_NO_RESIZE
+            flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE
             # | imgui.WINDOW_ALWAYS_AUTO_RESIZE
             # | imgui.WINDOW_NO_MOVE,
         ):
@@ -325,7 +323,9 @@ class GUI(object):
                 self.state.set_refresh_all()
 
     def segmentation(self):
-        with imgui.begin("voxel", flags=imgui.WINDOW_NO_TITLE_BAR):
+        with imgui.begin(
+            "voxel", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE
+        ):
             changed, self.state.color_target_1 = imgui.color_edit3(
                 "双侧脑室", *self.state.color_target_1
             )
@@ -355,7 +355,7 @@ class GUI(object):
             | imgui.WINDOW_NO_MOVE,
         ):
             has_changed = False
-            imgui.text("侧脑室脑脊液： 54.3 mL")
+            imgui.text("侧脑室脑脊液： 6.63 mL")
 
     def draw_and_update_status(self):
         with imgui.font(self.font_characters):
