@@ -1,10 +1,14 @@
 import time
 from queue import Queue
 from typing import *
+import nibabel as nib
+import ctypes
 
-from glm import *
-from glm import translate, scale
 import numpy as np
+import torch
+import torch.multiprocessing as mp
+from glm import *
+from glm import scale, translate
 
 __all__ = [
     "Status",
@@ -27,6 +31,16 @@ PLANE_UNKNOWN = -1
 
 class Status(object):
     def __init__(self) -> None:
+        self.segment_progress = mp.Manager().Value(ctypes.c_float, 0.0)
+        self.segment_process = []
+        self.segment_finished = mp.Event()
+        self.segment_finished.clear()
+        self.segment_queue = mp.Queue(maxsize=2)
+        self.has_seg = False
+
+        self.csf_volume = -1.0
+        self.csf_cnt = mp.Manager().Value(ctypes.c_int64, 0)
+
         self.screen_size = ivec2(1280, 720)
         self.viewport = ivec4(0, 0, 995, 720)
         self.view_type = PlANE_ALL
@@ -64,7 +78,7 @@ class Status(object):
         self.file_opened = False
 
         self.img_spacing = vec3(0.0, 0.0, 0.0)
-        self.img_shape = vec3(0, 0, 0)
+        self.img_shape = ivec3(0, 0, 0)
         self.img_modalty = "CT"
         self.img_region = vec3(0.0, 0.0, 0.0)
         self.img_body_range = "Head (Brain)"
@@ -80,6 +94,13 @@ class Status(object):
         self.patient_weight = "75 kg"
 
         self.frame_timestamp = time.time()
+
+    def get_seg(self):
+        seg = self.segment_queue.get()
+        seg = nib.load(seg)
+        seg = np.array(seg.dataobj, dtype=np.float32)
+        self.segment_finished.clear()
+        return seg
 
     def set_refresh_all(self):
         for i in range(PlANE_ALL):
@@ -100,7 +121,7 @@ class Status(object):
 
     def update_img_meta(self, spacing, shape, modalty):
         self.img_spacing = vec3(*spacing)
-        self.img_shape = vec3(*shape)
+        self.img_shape = ivec3(*shape)
         self.modalty = modalty
         region = np.array(spacing) * np.array(shape)
         self.img_region = vec3(*region)
@@ -119,6 +140,9 @@ class Status(object):
         self.camera_target = vec3(0.0, 0.0, 0.0)
         self.camera_update_lookat()
         self.view_radians = 3.141592 / 4.0
+
+    def volume_delta(self):
+        return self.img_spacing[0] * self.img_spacing[1] * self.img_spacing[2]
 
     def frame_time_step(self):
         t = time.time()
@@ -169,3 +193,10 @@ class Status(object):
     def cube_bounding(self):
         a, b = vec4(0, 0, 0, 1), vec4(1)
         return (self.M2W * a).xyz, (self.M2W * b).xyz
+
+    def __del__(self):
+        print("Closing subprocessing...")
+        for each in self.segment_process:
+            each.terminal()
+        for each in self.segment_process:
+            each.join()
