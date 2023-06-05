@@ -17,6 +17,7 @@ uniform mat4 W2M;
 uniform sampler3D img;
 uniform sampler3D seg;
 uniform float mix_rate;
+uniform bool has_seg;
 
 out vec4 color;
 
@@ -60,8 +61,6 @@ void main(){
     
     dest = vec4(0);
     if(is_intersect(eye,light_dir,t_range)){
-        // color = vec4((t_range.y-t_range.x)/5);
-        
         for(float t=t_range.x+EPSILON;t<t_range.y;t+=step){
             pos = eye+light_dir*t;
             tex_coord = (W2M*vec4(pos,1.0)).xyz;
@@ -70,20 +69,24 @@ void main(){
             if(vox_val==vox_max)
                 vox_val = vox_min;
             vox_val = (vox_val-vox_min)/vox_window;
-            vox_seg = texture(seg, tex_coord).r;
-            if(vox_seg<0.5){
-                src = vec4(vox_val);
-            }
-            else if (0.5 < vox_seg && vox_seg < 2.5){
-                src = vec4(color_1.rgb,1);
-            }
-            else if(2.5 < vox_seg && vox_seg < 3.5){
-                src = vec4(color_2.rgb,1);
+            if(has_seg){
+                vox_seg = texture(seg, tex_coord).r;
+                if(vox_seg<0.5){
+                    src = vec4(vox_val);
+                }
+                else if(0.5 < vox_seg && vox_seg < 1.5){
+                    src = vec4(color_1.rgb,1);
+                }
+                else if(1.5 < vox_seg && vox_seg < 3.5){
+                    src = vec4(color_2.rgb,1);
+                }
+                else{
+                    src = vec4(vox_val);
+                }
             }
             else{
                 src = vec4(vox_val);
             }
-            
             src.a *= alpha;
             src.rgb *= src.a;
             dest += (1-src.a)*src;
@@ -91,9 +94,6 @@ void main(){
                 break;
         }
         color = dest;
-        // pos = eye+light_dir*t_range.x;
-        // tex_coord = (W2M*vec4(pos,1.0)).xyz;
-        // color = vec4(tex_coord,1);
     }
     else
         color = dest;

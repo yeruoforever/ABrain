@@ -10,6 +10,7 @@ uniform vec3 color_2;
 uniform sampler3D img;
 uniform sampler3D seg;
 uniform float mix_rate;
+uniform bool has_seg;
 
 void main()
 {
@@ -24,17 +25,24 @@ void main()
     c_img = clamp(c_img, hu_range.x, hu_range.y);
     c_img = (c_img-hu_range.x)/(hu_range.y - hu_range.x);
 
-    c_seg = texture(seg, tex_coord).r;
-    if(c_seg<0.5){
-        color = mix(vec3(c_img), color_bg.rgb, mix_rate);
-    }
-    else if (0.5 < c_seg && c_seg < 2.5){
-        color = mix(vec3(c_img), color_1.rgb, mix_rate);
-    }
-    else if(2.5 < c_seg && c_seg < 3.5){
-        color = mix(vec3(c_img), color_2.rgb, mix_rate);
+    if(has_seg){
+        c_seg = texture(seg, tex_coord).r;
+        if(c_seg<0.9){
+            color = vec3(c_img);
+        }
+        else if(0.9 < c_seg && c_seg<1.1){
+            color = mix(vec3(c_img), color_1.rgb, mix_rate);
+        }
+        else if(2.9 < c_seg && c_seg<3.1){
+            color = mix(vec3(c_img), color_2.rgb, mix_rate);
+        }
+        else{
+            color = vec3(c_img);
+        }
     }
     else{
-        color = mix(vec3(c_img), color_bg.rgb, mix_rate);
+        color = vec3(c_img);
     }
+
+    
 }
