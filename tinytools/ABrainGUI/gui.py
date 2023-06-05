@@ -336,9 +336,13 @@ class GUI(object):
             )
             if changed:
                 self.state.set_refresh_all()
-            imgui.progress_bar(0.7, (self.MSG_BOX - 123, 20))
-            imgui.same_line(spacing=1)
-            imgui.text("处理成功")
+            percentage = float(self.state.segment_progress.value)
+            imgui.progress_bar(percentage, (self.MSG_BOX - 123, 20))
+            imgui.same_line(spacing=2)
+            if self.state.csf_volume >= 0:
+                imgui.text("测量完成")
+            else:
+                imgui.text("正在测量(%.2f)" % (percentage * 100.0) + "%")
             imgui.button("自动测量")
             imgui.same_line(spacing=3)
             imgui.button("保存结果")
@@ -355,7 +359,12 @@ class GUI(object):
             | imgui.WINDOW_NO_MOVE,
         ):
             has_changed = False
-            imgui.text("侧脑室脑脊液： 6.63 mL")
+            msg = (
+                "侧脑室脑脊液： 等待测量"
+                if self.state.csf_volume < 0
+                else "侧脑室脑脊液： %.2f mL" % self.state.csf_volume
+            )
+            imgui.text(msg)
 
     def draw_and_update_status(self):
         with imgui.font(self.font_characters):
