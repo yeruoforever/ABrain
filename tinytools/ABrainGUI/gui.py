@@ -337,17 +337,30 @@ class GUI(object):
             if changed:
                 self.state.set_refresh_all()
             percentage = float(self.state.segment_progress.value)
-            imgui.progress_bar(percentage, (self.MSG_BOX - 123, 20))
+            imgui.progress_bar(
+                percentage,
+                (self.MSG_BOX - 123, 20),
+                "%.2f" % (percentage * 100.0) + "%",
+            )
             imgui.same_line(spacing=2)
             if self.state.csf_volume >= 0:
                 imgui.text("测量完成")
             else:
-                imgui.text("正在测量(%.2f)" % (percentage * 100.0) + "%")
-            imgui.button("自动测量")
+                imgui.text("等待测量")
+            if imgui.button("自动测量"):
+                self.state.csf_volume = -1.0
+                self.state.segment_need_start.set()
             imgui.same_line(spacing=3)
-            imgui.button("保存结果")
+            if imgui.button("加载"):
+                seg_file = filedialog.askopenfilename()
+                if seg_file != "":
+                    self.state.segment_queue.put(seg_file)
+                    self.state.segment_finished.set()
             imgui.same_line(spacing=3)
-            imgui.button("加载")
+            if imgui.button("保存结果"):
+                saveas = filedialog.asksaveasfilename()
+                # TODO 保存结果
+                print(saveas)
 
     def measuring_result(self):
         with imgui.begin(
