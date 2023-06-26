@@ -12,7 +12,7 @@ from shader import *
 from status import *
 from utils import *
 
-DEBUG = True
+DEBUG = False
 
 
 TEXTURE_CROSS = GL_TEXTURE0 + PLANE_CROSS  # 0
@@ -243,28 +243,28 @@ class Render(object):
 
         glUniform1i(self.ptrs_plane["has_seg"], 1 if self.state.has_seg else 0)
 
+    def start_auto_segmentation(self):
+        # self.state.segment_progress.value = 0.0
+        if len(self.state.segment_process) > 0:
+            for p in self.state.segment_process:
+                p.terminate()
+        p = mp.Process(
+            target=start_segment,
+            args=(
+                self.state.current_file(),
+                self.state.segment_progress,
+                self.state.segment_finished,
+                self.state.segment_queue,
+            ),
+        )
+        p.start()
+        self.state.segment_process.append(p)
+
     def update_texture(self):
         if self.state.need_reload_file():
             self.state.segment_process: mp.Process
             self.state.csf_volume = -1.0
             self.state.has_seg = False
-            self.state.segment_progress.value = 0.0
-            if len(self.state.segment_process) > 0:
-                for p in self.state.segment_process:
-                    p.terminate()
-            self.state.segment_process.append(
-                mp.Process(
-                    target=start_segment,
-                    args=(
-                        self.state.input_file,
-                        self.state.segment_progress,
-                        self.state.segment_finished,
-                        self.state.segment_queue,
-                        self.state.csf_cnt,
-                    ),
-                )
-            )
-            self.state.segment_process[-1].start()
             img, spacing, directions = get_img(self.state.input_file)
             self.state.update_img_meta(spacing, img.shape, "CT")
             self.create_texture(img, None)
@@ -273,7 +273,7 @@ class Render(object):
             self.state.set_refresh_all()
         if self.state.segment_finished.is_set():
             # seg = get_seg(self.state.current_file())
-            # self.state.segment_finished.clear()
+            self.state.segment_finished.clear()
             seg: np.ndarray = self.state.get_seg()
             delta = self.state.volume_delta()
             self.state.csf_volume = self.state.csf_cnt.value * delta / 1000
@@ -287,6 +287,9 @@ class Render(object):
             self.state.flag_screen_size = False
 
     def check_and_update(self):
+        if self.state.segment_need_start.is_set():
+            self.start_auto_segmentation()
+            self.state.segment_need_start.clear()
         self.update_texture()
         self.update_screen_size()
         self.refresh()
