@@ -44,9 +44,8 @@ def get_img(img: str):
     return data, spacing, directions
 
 
-def start_segment(img: str, prog: Value, finished: Event, queue: Queue, csf_cnt: Value):
+def start_segment(img: str, prog: Value, finished: Event, queue: Queue):
     prog.value = 0.0
-    csf_cnt.value = -1.0
     nii = nib.load(img)
     data = np.array(nii.dataobj, dtype=np.float32)
     n = data.shape[2]
@@ -69,7 +68,6 @@ def start_segment(img: str, prog: Value, finished: Event, queue: Queue, csf_cnt:
             prog.value += 1 / n
         output = torch.cat(pred, dim=0)  # B,C,W,H
         seg: torch.Tensor = output.argmax(dim=1)
-    csf_cnt.value = (seg == 1).sum().item()
     seg = seg.permute(1, 2, 0)
     seg = nib.nifti1.Nifti1Image(seg.numpy().astype(np.uint8), nii._affine)
     tmp_nii = os.path.join(tempfile.gettempdir(), "tmp.nii.gz")
