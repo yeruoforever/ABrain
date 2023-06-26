@@ -87,13 +87,17 @@ class Status(object):
         self.plane_scale = 0.30
         self.plane_slice = vec3(0.0, 0.0, 0.0)
 
-        self.patient_id = "CT20220222"
-        self.patient_name = "蔡某某"
-        self.patient_age = "38"
-        self.patient_gender = "女"
-        self.patient_weight = "75 kg"
+        self.patient_id = "未加载"
+        self.patient_name = "--"
+        self.patient_age = "--"
+        self.patient_gender = "-"
+        self.patient_weight = "-- kg"
 
         self.frame_timestamp = time.time()
+
+        self.M2M = mat4()
+        self.M2W = mat4()
+        self.W2M = mat4()
 
     def get_seg(self):
         seg = self.segment_queue.get()
