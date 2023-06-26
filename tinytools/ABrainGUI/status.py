@@ -37,6 +37,8 @@ class Status(object):
         self.segment_finished.clear()
         self.segment_queue = mp.Queue(maxsize=2)
         self.has_seg = False
+        self.segment_need_start = mp.Event()
+        self.segment_need_start.clear()
 
         self.csf_volume = -1.0
         self.csf_cnt = mp.Manager().Value(ctypes.c_int64, 0)
@@ -103,6 +105,8 @@ class Status(object):
         seg = self.segment_queue.get()
         seg = nib.load(seg)
         seg = np.array(seg.dataobj, dtype=np.float32)
+        # TODO 多分割目标时seg的判断条件应该更改
+        self.csf_cnt.value = np.sum(seg > 0)
         self.segment_finished.clear()
         return seg
 
@@ -131,6 +135,7 @@ class Status(object):
         self.img_region = vec3(*region)
         self.update_aspact()
         self.update_M2W()
+        self.update_patient_meta("CT20220222", "蔡徐坤", "34", "男", "67 kg")
 
     def update_patient_meta(self, pid, name, age, gender, weight):
         self.patient_id = pid
